@@ -1,0 +1,25 @@
+{
+  "name": "sommer-hotellet",
+  "version": "1.0.0",
+  "description": "Sommer Hotellet - et hotelspil for børn",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:36425/git/emillykkejensen/sommer-hotellet"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0"
+  }
+}

@@ -1,237 +1,235 @@
+import Phaser from 'phaser';
 import { COLORS } from '../config';
-import { gameState } from '../state/GameState';
-import { showStarBurst, showSplash, showHearts } from '../objects/FeedbackEffects';
-import { drawSun, drawPerson } from '../helpers/DrawUtils';
-import { addBackButton } from '../ui/BackButton';
-import { addStarCounter } from '../ui/StarCounter';
+import { gameState, LOUNGER_COUNT } from '../state/GameState';
+import { showHearts, showSparkle, showSplash, showStarBurst, showToast } from '../objects/FeedbackEffects';
+import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
+import { caption, drawHead, drawSun, gradientBand, shadow, tappable } from '../helpers/Draw';
+import { BaseScene } from './BaseScene';
 
-export class PoolScene extends Phaser.Scene {
-  private towelStates: boolean[] = [false, false, false, false];
-  private slideUsed: boolean = false;
+export class PoolScene extends BaseScene {
+  private sliding = false;
 
   constructor() {
     super({ key: 'PoolScene' });
   }
 
-  create(): void {
+  protected buildBackground(): void {
     const { width, height } = this.scale;
 
-    this.cameras.main.fadeIn(300);
-    this.towelStates = [false, false, false, false];
-    this.slideUsed = false;
+    this.background.add(gradientBand(this, 0, height * 0.34, COLORS.skyLight, COLORS.sky));
+    this.background.add(gradientBand(this, height * 0.3, height * 0.7, COLORS.sandLight, COLORS.sandDeep));
 
-    // Sky
-    this.cameras.main.setBackgroundColor(COLORS.sky);
-    drawSun(this, width - 70, 60, 28);
+    drawSun(this, width - 68, 124, 24);
 
-    // Ground
-    const ground = this.add.graphics();
-    ground.fillStyle(COLORS.sand);
-    ground.fillRect(0, height * 0.3, width, height * 0.7);
+    // scattered pebbles for texture
+    const g = this.add.graphics();
+    for (let i = 0; i < 26; i++) {
+      g.fillStyle(COLORS.sandDeep, 0.4);
+      g.fillCircle(
+        Phaser.Math.Between(10, width - 10),
+        Phaser.Math.Between(height * 0.34, height - 8),
+        Phaser.Math.Between(2, 4)
+      );
+    }
+    this.background.add(g);
+    this.background.add(this.drawPool(width / 2, height * 0.55));
+  }
 
-    // Title
-    this.add.text(width / 2, 70, '🏊 Swimmingpoolen', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '24px',
-      color: '#FFFFFF',
-      fontStyle: 'bold',
-      stroke: '#3498DB',
-      strokeThickness: 3,
-    }).setOrigin(0.5);
-
-    // Pool
-    this.drawPool(width / 2, height * 0.52);
-
-    // Loungers
-    this.drawLoungers(width, height);
-
-    // Water slide
-    this.drawWaterSlide(width * 0.8, height * 0.35);
-
-    // Drink bar
-    this.drawDrinkBar(100, height * 0.85);
-
-    // Guests in pool
-    this.drawPoolGuests(width, height);
-
+  protected buildChrome(): void {
     addBackButton(this);
     addStarCounter(this);
+    addSceneTitle(this, 'Swimmingpoolen', '#3E96C4');
   }
 
-  private drawPool(cx: number, cy: number): void {
+  protected buildDynamic(): void {
+    const { width, height } = this.scale;
+
+    this.buildLoungers();
+    this.buildSlide(width - 198, height * 0.42);
+    this.buildDrinkBar(268, height * 0.9);
+    this.buildSwimmers();
+
+    const laid = gameState.pool.towels.filter(Boolean).length;
+    const allLaid = laid === LOUNGER_COUNT;
+    this.dyn(caption(this, width / 2, height - 24,
+      allLaid ? 'Alle solstole er klar' : `Læg håndklæder på solstolene — ${laid} af ${LOUNGER_COUNT}`,
+      allLaid ? 'done' : 'idle'));
+  }
+
+  private drawPool(cx: number, cy: number): Phaser.GameObjects.Container {
+    const c = this.add.container(0, 0);
     const g = this.add.graphics();
 
-    // Pool border
-    g.fillStyle(COLORS.greyLight);
-    g.fillRoundedRect(cx - 155, cy - 65, 310, 130, 20);
-
-    // Pool water
+    shadow(g, cx - 200, cy - 88, 400, 176, 28, 5, 0.16);
+    g.fillStyle(COLORS.white);
+    g.fillRoundedRect(cx - 200, cy - 88, 400, 176, 28);
+    g.fillStyle(COLORS.stone, 0.5);
+    g.fillRoundedRect(cx - 200, cy - 88, 400, 176, 28);
+    g.fillStyle(COLORS.white);
+    g.fillRoundedRect(cx - 193, cy - 81, 386, 162, 24);
+    g.fillStyle(COLORS.waterDeep);
+    g.fillRoundedRect(cx - 182, cy - 70, 364, 140, 20);
     g.fillStyle(COLORS.water);
-    g.fillRoundedRect(cx - 145, cy - 55, 290, 110, 15);
+    g.fillRoundedRect(cx - 182, cy - 70, 364, 126, 20);
+    g.fillStyle(COLORS.waterLight, 0.45);
+    g.fillEllipse(cx - 62, cy - 32, 124, 28);
+    g.fillEllipse(cx + 74, cy + 10, 90, 22);
+    g.fillStyle(COLORS.white, 0.25);
+    g.fillEllipse(cx - 100, cy - 50, 52, 13);
+    c.add(g);
 
-    // Water shimmer
-    g.fillStyle(COLORS.waterLight, 0.4);
-    g.fillEllipse(cx - 40, cy - 20, 80, 20);
-    g.fillEllipse(cx + 50, cy + 10, 60, 15);
 
-    // Make pool interactive (splash!)
-    const poolZone = this.add.zone(cx, cy, 280, 100).setInteractive({ useHandCursor: true });
-    poolZone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      showSplash(this, pointer.x, pointer.y);
-    });
-
-    // Water wave animation
+    // animated surface line
     const wave = this.add.graphics();
+    c.add(wave);
     let offset = 0;
     this.time.addEvent({
-      delay: 100,
+      delay: 90,
       loop: true,
       callback: () => {
+        if (!wave.active) return;
         wave.clear();
-        wave.lineStyle(2, COLORS.waterLight, 0.3);
+        wave.lineStyle(2, COLORS.white, 0.28);
         wave.beginPath();
-        wave.moveTo(cx - 140, cy);
-        for (let x = cx - 140; x <= cx + 140; x += 10) {
-          wave.lineTo(x, cy + Math.sin((x + offset) * 0.05) * 5);
+        wave.moveTo(cx - 168, cy);
+        for (let x = cx - 168; x <= cx + 168; x += 10) {
+          wave.lineTo(x, cy + Math.sin((x + offset) * 0.045) * 5);
         }
         wave.strokePath();
-        offset += 15;
+        offset += 14;
       },
     });
+
+    const zone = this.add.zone(cx, cy, 356, 132).setInteractive({ useHandCursor: true });
+    zone.on('pointerdown', (p: Phaser.Input.Pointer) => showSplash(this, p.worldX, p.worldY));
+    c.add(zone);
+
+    return c;
   }
 
-  private drawLoungers(width: number, height: number): void {
-    const positions = [
-      { x: 80, y: height * 0.4 },
-      { x: 80, y: height * 0.55 },
-      { x: width - 80, y: height * 0.4 },
-      { x: width - 80, y: height * 0.55 },
+  private buildLoungers(): void {
+    const { width, height } = this.scale;
+    const spots = [
+      { x: 92, y: height * 0.5 },
+      { x: 92, y: height * 0.73 },
+      { x: width - 92, y: height * 0.68 },
+      { x: width - 92, y: height * 0.88 },
     ];
 
-    positions.forEach((pos, i) => {
-      const container = this.add.container(pos.x, pos.y);
+    spots.forEach((spot, i) => {
+      const hasTowel = gameState.pool.towels[i];
+      const c = this.add.container(spot.x, spot.y);
+      const g = this.add.graphics();
 
-      // Lounger
-      const lounger = this.add.graphics();
-      lounger.fillStyle(COLORS.wood);
-      lounger.fillRect(-25, -5, 50, 20);
-      lounger.fillRect(-20, -15, 10, 12);
-      // Legs
-      lounger.fillRect(-22, 15, 4, 8);
-      lounger.fillRect(18, 15, 4, 8);
-      container.add(lounger);
+      shadow(g, -32, 18, 64, 10, 5, 2, 0.14);
+      g.fillStyle(COLORS.woodDeep);
+      g.fillRoundedRect(-30, -4, 60, 22, 6);
+      g.fillStyle(COLORS.wood);
+      g.fillRoundedRect(-30, -4, 60, 12, 6);
+      g.fillStyle(COLORS.woodDeep);
+      g.fillRoundedRect(-27, -20, 13, 17, 5);
+      g.fillRoundedRect(-26, 18, 5, 9, 2);
+      g.fillRoundedRect(21, 18, 5, 9, 2);
+      c.add(g);
 
-      if (this.towelStates[i]) {
-        // Towel on lounger
+      if (hasTowel) {
         const towel = this.add.graphics();
-        towel.fillStyle(i % 2 === 0 ? COLORS.pink : COLORS.water, 0.7);
-        towel.fillRect(-22, -3, 44, 16);
-        // Stripes
-        towel.fillStyle(COLORS.white, 0.4);
-        towel.fillRect(-22, 1, 44, 3);
-        towel.fillRect(-22, 8, 44, 3);
-        container.add(towel);
-
-        container.add(this.add.text(0, 28, '✅', { fontSize: '16px' }).setOrigin(0.5));
-      } else {
-        const label = this.add.text(0, 28, '🏖️ Håndklæde', {
-          fontFamily: 'Arial, sans-serif',
-          fontSize: '10px',
-          color: '#555',
-          fontStyle: 'bold',
-          backgroundColor: '#FFFFFFCC',
-          padding: { x: 3, y: 2 },
-        }).setOrigin(0.5);
-        container.add(label);
-
-        container.setSize(55, 35);
-        container.setInteractive({ useHandCursor: true });
-        container.on('pointerdown', () => {
-          this.towelStates[i] = true;
-          gameState.poolTowelsLaid++;
-          gameState.save();
-          showStarBurst(this, pos.x, pos.y);
-          this.scene.restart();
-        });
+        const shade = i % 2 === 0 ? COLORS.pink : COLORS.waterLight;
+        towel.fillStyle(shade);
+        towel.fillRoundedRect(-27, -6, 54, 17, 4);
+        towel.fillStyle(COLORS.white, 0.55);
+        towel.fillRect(-27, -2, 54, 3.5);
+        towel.fillRect(-27, 5, 54, 3.5);
+        c.add(towel);
       }
+
+      c.add(caption(this, 0, hasTowel ? 34 : 36,
+        hasTowel ? 'Klar' : 'Læg håndklæde', hasTowel ? 'done' : 'idle'));
+      this.dyn(c);
+
+      if (hasTowel) return;
+
+      tappable(this, c, 76, 54, () => {
+        if (!gameState.layTowel(i)) return;
+        award(this);
+        showStarBurst(this, spot.x, spot.y - 6);
+
+        if (gameState.pool.towels.every(Boolean)) {
+          showSparkle(this, width / 2, height * 0.55, 300, 140);
+          showToast(this, width / 2, height * 0.3, 'Alle solstole er klar', '#4A7F33');
+          award(this, 2);
+        }
+        this.refresh();
+      });
     });
   }
 
-  private drawWaterSlide(x: number, y: number): void {
-    const container = this.add.container(x, y);
+  private buildSlide(x: number, y: number): void {
+    const c = this.add.container(x, y);
+    const g = this.add.graphics();
 
-    // Slide structure
-    const slide = this.add.graphics();
-    // Ladder
-    slide.fillStyle(COLORS.grey);
-    slide.fillRect(-5, -40, 10, 80);
-    slide.fillRect(-12, -35, 24, 5);
-    slide.fillRect(-12, -20, 24, 5);
-    slide.fillRect(-12, -5, 24, 5);
+    // tower
+    g.fillStyle(COLORS.stoneDeep);
+    g.fillRoundedRect(24, -60, 13, 122, 6);
+    g.fillStyle(COLORS.stone);
+    g.fillRoundedRect(-2, -60, 13, 122, 6);
+    for (let i = 0; i < 4; i++) {
+      g.fillStyle(COLORS.stoneDeep);
+      g.fillRoundedRect(-2, -46 + i * 26, 39, 6, 3);
+    }
+    // platform
+    g.fillStyle(COLORS.roofDeep);
+    g.fillRoundedRect(-14, -70, 62, 11, 5);
 
-    // Slide
-    slide.fillStyle(COLORS.red);
-    slide.lineStyle(6, COLORS.red);
-    slide.beginPath();
-    slide.moveTo(0, -40);
-    slide.lineTo(-60, 30);
-    slide.strokePath();
-    // Slide rails
-    slide.lineStyle(3, COLORS.yellow);
-    slide.beginPath();
-    slide.moveTo(3, -40);
-    slide.lineTo(-57, 30);
-    slide.strokePath();
-    slide.beginPath();
-    slide.moveTo(-3, -40);
-    slide.lineTo(-63, 30);
-    slide.strokePath();
-    container.add(slide);
+    // flume
+    g.lineStyle(17, COLORS.roofDeep);
+    g.beginPath();
+    g.moveTo(-6, -62);
+    g.lineTo(-96, 44);
+    g.strokePath();
+    g.lineStyle(11, COLORS.red);
+    g.beginPath();
+    g.moveTo(-6, -62);
+    g.lineTo(-96, 44);
+    g.strokePath();
+    g.lineStyle(3, COLORS.white, 0.5);
+    g.beginPath();
+    g.moveTo(-9, -62);
+    g.lineTo(-99, 44);
+    g.strokePath();
 
-    const label = this.add.text(-30, 45, '🎢 Rutsjebane!', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '12px',
-      color: '#E74C3C',
-      fontStyle: 'bold',
-      backgroundColor: '#FFFFFFCC',
-      padding: { x: 4, y: 2 },
-    }).setOrigin(0.5);
-    container.add(label);
+    c.add(g);
+    c.add(caption(this, 2, 100, 'Prøv rutsjebanen'));
+    this.dyn(c);
 
-    container.setSize(80, 100);
-    container.setInteractive({ useHandCursor: true });
-    container.on('pointerdown', () => {
-      if (this.slideUsed) return;
-      this.slideUsed = true;
+    tappable(this, c, 120, 140, () => {
+      if (this.sliding) return;
+      this.sliding = true;
 
-      // Animate a figure going down the slide
-      const slider = this.add.text(x, y - 40, '😄', { fontSize: '24px' }).setOrigin(0.5);
+      const rider = this.add.container(x - 6, y - 62, [drawHead(this, 0, 0, COLORS.yellow, 0.9)])
+        .setDepth(870);
+
       this.tweens.add({
-        targets: slider,
-        x: x - 60,
-        y: y + 30,
-        duration: 600,
-        ease: 'Power2',
+        targets: rider,
+        x: x - 96,
+        y: y + 44,
+        angle: -40,
+        duration: 620,
+        ease: 'Quad.easeIn',
         onComplete: () => {
-          showSplash(this, x - 60, y + 30);
-          showStarBurst(this, x - 60, y + 10);
-
-          const wee = this.add.text(x - 30, y - 20, 'Wheee! 🎉', {
-            fontFamily: 'Arial, sans-serif',
-            fontSize: '18px',
-            color: '#E74C3C',
-            fontStyle: 'bold',
-          }).setOrigin(0.5);
-
+          showSplash(this, x - 100, y + 52);
+          showStarBurst(this, x - 100, y + 30, 4);
+          showToast(this, x - 110, y - 10, 'Juhuu!', '#B9584A');
+          award(this);
+          this.events.emit('starsChanged', gameState.stars);
           this.tweens.add({
-            targets: [slider, wee],
+            targets: rider,
             alpha: 0,
-            delay: 800,
-            duration: 500,
+            duration: 320,
+            delay: 260,
             onComplete: () => {
-              slider.destroy();
-              wee.destroy();
-              this.slideUsed = false;
+              rider.destroy();
+              this.sliding = false;
             },
           });
         },
@@ -239,70 +237,82 @@ export class PoolScene extends Phaser.Scene {
     });
   }
 
-  private drawDrinkBar(x: number, y: number): void {
+  private buildDrinkBar(x: number, y: number): void {
+    const c = this.add.container(x, y);
     const g = this.add.graphics();
 
-    // Bar counter
-    g.fillStyle(COLORS.wood);
-    g.fillRoundedRect(x - 50, y - 15, 100, 30, 8);
+    shadow(g, -66, -14, 132, 34, 8, 3, 0.16);
+    g.fillStyle(COLORS.woodDeep);
+    g.fillRoundedRect(-66, -14, 132, 34, 8);
+    g.fillStyle(COLORS.woodLight);
+    g.fillRoundedRect(-70, -20, 140, 12, 6);
+    c.add(g);
 
-    // Drinks
-    const drinks = ['🧃', '🍹', '🥤', '🍨'];
-    drinks.forEach((drink, i) => {
-      const dx = x - 30 + i * 22;
-      const drinkText = this.add.text(dx, y - 25, drink, { fontSize: '20px' }).setOrigin(0.5);
-
-      drinkText.setInteractive({ useHandCursor: true });
-      drinkText.on('pointerdown', () => {
-        showHearts(this, dx, y - 40);
-        this.tweens.add({
-          targets: drinkText,
-          scale: 1.3,
-          duration: 150,
-          yoyo: true,
-        });
-      });
-    });
-
-    this.add.text(x, y + 22, '🍹 Drinks', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '12px',
-      color: '#555',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-  }
-
-  private drawPoolGuests(width: number, height: number): void {
-    const guests = gameState.getCheckedInGuests();
-    const poolPositions = [
-      { x: width / 2 - 60, y: height * 0.5 },
-      { x: width / 2 + 30, y: height * 0.48 },
-      { x: width / 2 - 20, y: height * 0.55 },
+    const drinks = [
+      { color: COLORS.orange, x: -44 },
+      { color: COLORS.pink, x: -15 },
+      { color: COLORS.green, x: 14 },
+      { color: COLORS.purple, x: 43 },
     ];
 
-    guests.slice(0, 3).forEach((guest, i) => {
-      const pos = poolPositions[i];
-      // Just show head (swimming)
-      const head = this.add.graphics();
-      head.fillStyle(0xFFDBAC);
-      head.fillCircle(pos.x, pos.y, 10);
-      head.fillStyle(guest.color);
-      head.fillRoundedRect(pos.x - 8, pos.y - 12, 16, 6, 3);
-      // Eyes
-      head.fillStyle(COLORS.black);
-      head.fillCircle(pos.x - 3, pos.y - 2, 1.5);
-      head.fillCircle(pos.x + 3, pos.y - 2, 1.5);
-      // Smile
-      head.lineStyle(1, COLORS.black);
-      head.beginPath();
-      head.arc(pos.x, pos.y + 2, 3, 0.2, Math.PI - 0.2, false);
-      head.strokePath();
+    drinks.forEach(d => {
+      const glass = this.add.graphics();
+      glass.fillStyle(COLORS.white, 0.7);
+      glass.fillRoundedRect(-10, -17, 20, 33, { tl: 3, tr: 3, bl: 9, br: 9 });
+      glass.fillStyle(d.color, 0.92);
+      glass.fillRoundedRect(-8, -5, 16, 19, { tl: 0, tr: 0, bl: 7, br: 7 });
+      glass.fillStyle(COLORS.white, 0.6);
+      glass.fillRoundedRect(-8, -15, 6, 26, 3);
+      // straw
+      glass.fillStyle(COLORS.red);
+      glass.fillRoundedRect(2, -26, 3, 13, 1.5);
 
-      // Bobbing animation
+      const holder = this.add.container(d.x, -40, [glass]);
+      holder.setSize(30, 46);
+      holder.setInteractive({ useHandCursor: true });
+      holder.on('pointerdown', () => {
+        showHearts(this, x + d.x, y - 56);
+        this.tweens.add({ targets: holder, scale: 1.3, duration: 140, yoyo: true });
+      });
+      c.add(holder);
+    });
+
+    c.add(caption(this, 0, 30, 'Drinks'));
+    this.dyn(c);
+  }
+
+  private buildSwimmers(): void {
+    const { width, height } = this.scale;
+    const guests = gameState.getCheckedInGuests().slice(0, 3);
+    const spots = [
+      { x: width / 2 - 82, y: height * 0.53 },
+      { x: width / 2 + 30, y: height * 0.5 },
+      { x: width / 2 - 16, y: height * 0.6 },
+    ];
+
+    guests.forEach((guest, i) => {
+      const spot = spots[i];
+      const c = this.add.container(spot.x, spot.y);
+
+      // ring float
+      const ring = this.add.graphics();
+      ring.fillStyle(COLORS.white);
+      ring.fillCircle(0, 6, 21);
+      ring.fillStyle(COLORS.red);
+      ring.fillCircle(0, 6, 19);
+      ring.fillStyle(COLORS.white);
+      ring.fillCircle(0, 6, 11);
+      ring.fillStyle(COLORS.water, 0.55);
+      ring.fillCircle(0, 6, 9);
+      c.add(ring);
+      c.add(drawHead(this, 0, -4, guest.color, 0.8));
+
+      this.dyn(c);
+
       this.tweens.add({
-        targets: head,
-        y: '-=3',
-        duration: 1000 + i * 200,
+        targets: c,
+        y: spot.y - 4,
+        duration: 1500 + i * 260,
         yoyo: true,
         repeat: -1,
         ease: 'Sine.easeInOut',

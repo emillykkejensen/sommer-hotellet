@@ -1,5 +1,8 @@
-import { COLORS, GAME_WIDTH, GAME_HEIGHT } from '../config';
-import { drawSun, drawCloud, createButton } from '../helpers/DrawUtils';
+import Phaser from 'phaser';
+import { COLORS, FONT, INK_SOFT, SIZE, text } from '../config';
+import { button, drawCloud, drawFlower, drawSun, gradientBand, shadow } from '../helpers/Draw';
+import { gameState } from '../state/GameState';
+import { dur, transition } from '../helpers/Motion';
 
 export class MainMenuScene extends Phaser.Scene {
   constructor() {
@@ -8,137 +11,143 @@ export class MainMenuScene extends Phaser.Scene {
 
   create(): void {
     const { width, height } = this.scale;
+    this.cameras.main.fadeIn(dur(400));
 
-    this.cameras.main.fadeIn(400);
-    this.cameras.main.setBackgroundColor(COLORS.sky);
+    gradientBand(this, 0, height * 0.72, COLORS.skyLight, COLORS.sky);
+    gradientBand(this, height * 0.68, height * 0.32, COLORS.grassLight, COLORS.grassDeep);
 
-    // Sky gradient effect
-    const skyGrad = this.add.graphics();
-    skyGrad.fillGradientStyle(0x87CEEB, 0x87CEEB, 0xB0E0E6, 0xB0E0E6);
-    skyGrad.fillRect(0, 0, width, height * 0.6);
+    drawSun(this, width - 110, 150, 30);
 
-    // Sun
-    drawSun(this, width - 100, 80, 35);
+    const c1 = drawCloud(this, 170, 96, 1);
+    this.tweens.add({ targets: c1, x: '+=180', duration: 22000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    const c2 = drawCloud(this, 640, 128, 0.68);
+    this.tweens.add({ targets: c2, x: '-=140', duration: 18000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 
-    // Clouds
-    const cloud1 = drawCloud(this, 150, 70, 1);
-    this.tweens.add({ targets: cloud1, x: '+=200', duration: 15000, yoyo: true, repeat: -1 });
-    const cloud2 = drawCloud(this, 500, 100, 0.7);
-    this.tweens.add({ targets: cloud2, x: '-=150', duration: 12000, yoyo: true, repeat: -1 });
+    this.drawHotel(width / 2, height * 0.5);
 
-    // Ground
-    const ground = this.add.graphics();
-    ground.fillStyle(COLORS.grass);
-    ground.fillRect(0, height * 0.65, width, height * 0.35);
-
-    // Simple hotel building
-    this.drawHotel(width / 2, height * 0.45);
-
-    // Title
-    const titleShadow = this.add.text(width / 2 + 3, height * 0.12 + 3, 'Sommer Hotellet', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '52px',
-      color: '#993333',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-
-    const title = this.add.text(width / 2, height * 0.12, 'Sommer Hotellet', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '52px',
-      color: '#CC4444',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-
-    // Subtitle
-    this.add.text(width / 2, height * 0.19, '☀️ Fordi der altid er sommer her! ☀️', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '18px',
+    const title = this.add.text(width / 2, height * 0.15, 'Sommer Hotellet', {
+      fontFamily: FONT,
+      fontSize: `${SIZE.display}px`,
       color: '#FFFFFF',
+      fontStyle: '700',
+      stroke: '#C05B49',
+      strokeThickness: 7,
     }).setOrigin(0.5);
 
-    // Gentle title bounce
+    const sub = this.add.text(width / 2, height * 0.235, 'Fordi der altid er sommer her', {
+      fontFamily: FONT,
+      fontSize: `${SIZE.body}px`,
+      color: '#FFFFFF',
+      fontStyle: '600',
+      stroke: '#8CC9E6',
+      strokeThickness: 3,
+    }).setOrigin(0.5);
+
     this.tweens.add({
-      targets: [title, titleShadow],
-      y: '-=5',
-      duration: 1500,
+      targets: [title, sub],
+      y: '-=6',
+      duration: 2200,
       yoyo: true,
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
 
-    // Play button
-    createButton(this, width / 2, height * 0.85, '🏨  Spil!', COLORS.green, () => {
-      this.cameras.main.fadeOut(300, 0, 0, 0);
-      this.cameras.main.once('camerafadeoutcomplete', () => {
-        this.scene.start('HotelMapScene');
-      });
-    }, 220, 60);
+    button(this, width / 2, height * 0.86, 'Spil', COLORS.green,
+      () => transition(this, 'HotelMapScene', 280), 210, 58, SIZE.title);
 
-    // Small flowers on the ground
-    for (let i = 0; i < 8; i++) {
-      const fx = Phaser.Math.Between(50, width - 50);
-      const fy = Phaser.Math.Between(height * 0.72, height * 0.92);
-      this.drawSmallFlower(fx, fy);
+    // A parent needs a way out of a stuck save that is not devtools.
+    if (gameState.stars > 0) {
+      this.addResetLink(width / 2, height - 26);
     }
+
+    for (let i = 0; i < 9; i++) {
+      drawFlower(
+        this,
+        Phaser.Math.Between(40, width - 40),
+        Phaser.Math.Between(height * 0.76, height * 0.95),
+        Phaser.Utils.Array.GetRandom([COLORS.pink, COLORS.yellow, COLORS.purple, COLORS.white]),
+        0.62
+      );
+    }
+  }
+
+  private addResetLink(x: number, y: number): void {
+    const label = this.add.text(x, y, 'Start forfra', text(SIZE.tiny, '#FFFFFF', 'semibold'))
+      .setOrigin(0.5)
+      .setAlpha(0.75)
+      .setInteractive({ useHandCursor: true });
+
+    label.on('pointerover', () => label.setAlpha(1));
+    label.on('pointerout', () => label.setAlpha(0.75));
+    label.on('pointerdown', () => {
+      if (label.getData('confirming')) {
+        gameState.reset();
+        this.scene.restart();
+        return;
+      }
+      label.setData('confirming', true);
+      label.setText('Tryk igen for at slette');
+      this.time.delayedCall(3000, () => {
+        if (label.active) {
+          label.setData('confirming', false);
+          label.setText('Start forfra');
+        }
+      });
+    });
   }
 
   private drawHotel(cx: number, cy: number): void {
     const g = this.add.graphics();
 
-    // Main building
-    g.fillStyle(COLORS.cream);
-    g.fillRect(cx - 120, cy - 80, 240, 160);
+    shadow(g, cx - 130, cy - 78, 260, 168, 10, 6, 0.14);
 
-    // Roof
+    // body
+    g.fillStyle(COLORS.wall);
+    g.fillRoundedRect(cx - 130, cy - 78, 260, 168, 10);
+    g.fillStyle(COLORS.wallDeep, 0.5);
+    g.fillRoundedRect(cx + 92, cy - 78, 38, 168, { tl: 0, tr: 10, bl: 0, br: 10 });
+
+    // roof
+    g.fillStyle(COLORS.roofDeep);
+    g.fillTriangle(cx - 152, cy - 74, cx + 152, cy - 74, cx, cy - 152);
     g.fillStyle(COLORS.roof);
-    g.fillTriangle(cx - 140, cy - 80, cx + 140, cy - 80, cx, cy - 150);
+    g.fillTriangle(cx - 152, cy - 74, cx + 130, cy - 74, cx - 12, cy - 146);
 
-    // Windows
-    g.fillStyle(COLORS.window);
-    const windowPositions = [
-      [-70, -40], [-20, -40], [30, -40], [80, -40],
-      [-70, 20], [-20, 20], [30, 20], [80, 20],
-    ];
-    for (const [wx, wy] of windowPositions) {
-      g.fillRect(cx + wx - 15, cy + wy - 15, 30, 25);
-      // Window frame
-      g.lineStyle(2, COLORS.white);
-      g.strokeRect(cx + wx - 15, cy + wy - 15, 30, 25);
-      g.lineBetween(cx + wx, cy + wy - 15, cx + wx, cy + wy + 10);
+    // windows
+    for (let row = 0; row < 2; row++) {
+      for (let col = 0; col < 4; col++) {
+        const wx = cx - 84 + col * 56;
+        const wy = cy - 44 + row * 58;
+        g.fillStyle(COLORS.window);
+        g.fillRoundedRect(wx - 17, wy - 15, 34, 30, 5);
+        g.fillStyle(COLORS.white, 0.5);
+        g.fillRoundedRect(wx - 17, wy - 15, 15, 30, 5);
+        g.lineStyle(2, COLORS.wallDeep);
+        g.strokeRoundedRect(wx - 17, wy - 15, 34, 30, 5);
+      }
     }
 
-    // Door
+    // door with awning
     g.fillStyle(COLORS.door);
-    g.fillRect(cx - 18, cy + 40, 36, 40);
-    g.fillStyle(COLORS.sunYellow);
-    g.fillCircle(cx + 10, cy + 60, 3);
+    g.fillRoundedRect(cx - 22, cy + 42, 44, 48, { tl: 12, tr: 12, bl: 0, br: 0 });
+    g.fillStyle(COLORS.sun);
+    g.fillCircle(cx + 12, cy + 66, 3);
+    g.fillStyle(COLORS.roof);
+    g.fillRoundedRect(cx - 34, cy + 34, 68, 12, 6);
 
-    // Hotel sign
+    // sign
+    const signW = 116;
     g.fillStyle(COLORS.white);
-    g.fillRoundedRect(cx - 50, cy - 120, 100, 25, 5);
-    this.add.text(cx, cy - 108, 'HOTEL', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '16px',
-      color: '#CC4444',
-      fontStyle: 'bold',
+    g.fillRoundedRect(cx - signW / 2, cy - 128, signW, 28, 8);
+    this.add.text(cx, cy - 114, 'HOTEL', {
+      fontFamily: FONT,
+      fontSize: '15px',
+      color: '#C05B49',
+      fontStyle: '700',
     }).setOrigin(0.5);
-  }
 
-  private drawSmallFlower(x: number, y: number): void {
-    const colors = [COLORS.pink, COLORS.red, COLORS.yellow, COLORS.purple, COLORS.orange];
-    const color = Phaser.Utils.Array.GetRandom(colors);
-
-    const g = this.add.graphics();
-    // Stem
-    g.lineStyle(2, COLORS.green);
-    g.lineBetween(x, y, x, y - 12);
-    // Petals
-    g.fillStyle(color);
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2;
-      g.fillCircle(x + Math.cos(a) * 4, y - 12 + Math.sin(a) * 4, 3);
-    }
-    g.fillStyle(COLORS.yellow);
-    g.fillCircle(x, y - 12, 2);
+    this.add.text(cx, cy + 108, 'Tryk på Spil for at komme ind', text(SIZE.tiny, INK_SOFT))
+      .setOrigin(0.5)
+      .setAlpha(0);
   }
 }

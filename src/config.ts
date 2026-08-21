@@ -1,59 +1,111 @@
-export const GAME_WIDTH = 800;
+export const GAME_WIDTH = 960;
 export const GAME_HEIGHT = 600;
 
+/**
+ * Palette. Softer and less saturated than a primary-colour set: every hue has a
+ * light / base / deep step so shapes can be shaded instead of outlined, which is
+ * what keeps them from reading as flat slabs.
+ */
 export const COLORS = {
-  sky: 0x87CEEB,
-  grass: 0x7EC850,
-  sand: 0xF4D03F,
-  water: 0x3498DB,
-  waterLight: 0x5DADE2,
-  wood: 0x8B6914,
-  woodLight: 0xA0782C,
-  wall: 0xFFF8DC,
-  wallPink: 0xFFE4E1,
-  wallBlue: 0xE0F0FF,
-  wallGreen: 0xE8F5E9,
-  roof: 0xCC4444,
-  roofDark: 0xAA3333,
-  door: 0x6B4226,
-  window: 0xADD8E6,
+  // sky
+  sky: 0xA9DAF0,
+  skyLight: 0xD6EDF8,
+  skyDeep: 0x8CC9E6,
+
+  // ground
+  grass: 0x8CC96E,
+  grassLight: 0xA5D98A,
+  grassDeep: 0x6FAE55,
+
+  sand: 0xF0DCA8,
+  sandLight: 0xF8EBCB,
+  sandDeep: 0xDCC087,
+
+  // water
+  water: 0x62B6DE,
+  waterLight: 0x9AD3EC,
+  waterDeep: 0x3E96C4,
+
+  // wood
+  wood: 0xC99A6B,
+  woodLight: 0xDDB68B,
+  woodDeep: 0xA57A51,
+
+  // building
+  roof: 0xD9705C,
+  roofDeep: 0xB9584A,
+  wall: 0xFBF3E4,
+  wallDeep: 0xEFE2CB,
+  door: 0xA57A51,
+  window: 0xCDE9F5,
+
+  // room wall tints
+  wallPink: 0xFBE7E6,
+  wallBlue: 0xE6F2FB,
+  wallGreen: 0xEAF4E4,
+
+  // accents
+  red: 0xE07A63,
+  orange: 0xEFA95F,
+  yellow: 0xF6D06A,
+  green: 0x7CBE6A,
+  pink: 0xF2A0B5,
+  purple: 0xB294D4,
+  sun: 0xFBCF63,
+  sunDeep: 0xF0B93F,
+
+  // neutrals — warm, so nothing reads as printer grey
   white: 0xFFFFFF,
-  black: 0x000000,
-  red: 0xE74C3C,
-  orange: 0xF39C12,
-  yellow: 0xF1C40F,
-  green: 0x27AE60,
-  pink: 0xFF69B4,
-  purple: 0x9B59B6,
-  brown: 0x8B4513,
-  grey: 0x95A5A6,
-  greyLight: 0xBDC3C7,
-  cream: 0xFFFDD0,
-  sunYellow: 0xFFD700,
+  cream: 0xFDF7EA,
+  stone: 0xD8D0C4,
+  stoneDeep: 0xB3A899,
+  ink: 0x5A4E42,
+  inkSoft: 0x8A7E70,
+  shadow: 0x4A3B2E,
 };
 
-export const FONT_STYLE = {
-  fontFamily: 'Arial, sans-serif',
-  fontSize: '24px',
-  color: '#333333',
+/** Same values as CSS strings, for Text objects. */
+export const INK = '#5A4E42';
+export const INK_SOFT = '#8A7E70';
+export const INK_ON_DARK = '#FFFFFF';
+
+/**
+ * Nunito is rounded and has a tall x-height, which reads better at small sizes for
+ * early readers than the bold Arial this replaced. Loaded in index.html; BootScene
+ * waits for document.fonts before drawing anything.
+ */
+export const FONT = "Nunito, 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
+
+export const SIZE = {
+  display: 44,
+  title: 26,
+  heading: 19,
+  body: 15,
+  label: 13,
+  tiny: 11,
 };
 
-export const TITLE_STYLE = {
-  fontFamily: 'Arial, sans-serif',
-  fontSize: '48px',
-  color: '#CC4444',
-  fontStyle: 'bold',
-};
+export type Weight = 'regular' | 'semibold' | 'bold';
+const WEIGHTS: Record<Weight, string> = { regular: '400', semibold: '600', bold: '700' };
 
-export const BUTTON_STYLE = {
-  fontFamily: 'Arial, sans-serif',
-  fontSize: '28px',
-  color: '#FFFFFF',
-  fontStyle: 'bold',
-};
+export function text(
+  size: number,
+  color: string = INK,
+  weight: Weight = 'semibold'
+): Phaser.Types.GameObjects.Text.TextStyle {
+  return { fontFamily: FONT, fontSize: `${size}px`, color, fontStyle: WEIGHTS[weight] };
+}
 
 export const ROOM_THEMES = [
-  { name: 'Rum 1 - Solskin', wall: COLORS.wallPink, accent: COLORS.pink, bedColor: 0xFF9999 },
-  { name: 'Rum 2 - Havet', wall: COLORS.wallBlue, accent: COLORS.water, bedColor: 0x99CCFF },
-  { name: 'Rum 3 - Skoven', wall: COLORS.wallGreen, accent: COLORS.green, bedColor: 0x99CC99 },
+  { name: 'Solskin', wall: COLORS.wallPink, accent: COLORS.pink, duvet: 0xF6B9C6, cushion: 0xF2A0B5 },
+  { name: 'Havet', wall: COLORS.wallBlue, accent: COLORS.water, duvet: 0x9AD3EC, cushion: 0x62B6DE },
+  { name: 'Skoven', wall: COLORS.wallGreen, accent: COLORS.green, duvet: 0xB4DBA5, cushion: 0x7CBE6A },
 ];
+
+/** Shared depths so effects always draw above a refreshed layer. */
+export const DEPTH = {
+  background: 0,
+  dynamic: 10,
+  chrome: 800,
+  effects: 900,
+};

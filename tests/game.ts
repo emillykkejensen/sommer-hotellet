@@ -1,0 +1,218 @@
+import { Page, expect } from '@playwright/test';
+import { GAME_HEIGHT, GAME_WIDTH } from '../src/config';
+
+/**
+ * Test harness for driving the Phaser canvas.
+ *
+ * Everything goes through game coordinates (960x600) rather than screen pixels, so a
+ * different viewport does not silently move every click target.
+ */
+export class Game {
+  readonly errors: string[] = [];
+
+  constructor(private page: Page) {
+    // Uncaught exceptions only. Console resource errors (a blocked webfont CDN, a
+    // missing favicon) are environmental and would make the suite fail offline.
+    page.on('pageerror', e => this.errors.push(e.message));
+    page.on('console', m => {
+      if (m.type() !== 'error') return;
+      const t = m.text();
+      if (/Failed to load resource|net::|ERR_|favicon/.test(t)) return;
+      this.errors.push(t);
+    });
+  }
+
+  static async open(page: Page): Promise<Game> {
+    const game = new Game(page);
+    // The game honours prefers-reduced-motion by collapsing camera fades and the tap
+    // squash. Enabling it here means the suite is not gated on animation time — which
+    // matters because software WebGL runs at a few frames a second.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.addInitScript(() => window.localStorage.clear());
+    await page.goto('/');
+    await game.waitForScene('MainMenuScene');
+    return game;
+  }
+
+  async tap(gx: number, gy: number): Promise<void> {
+    const box = await this.page.locator('canvas').boundingBox();
+    if (!box) throw new Error('canvas not found');
+    await this.page.mouse.click(
+      box.x + (gx / GAME_WIDTH) * box.width,
+      box.y + (gy / GAME_HEIGHT) * box.height
+    );
+    await this.settle();
+  }
+
+  /**
+   * Waits for the game to stop moving rather than sleeping a fixed time. Software WebGL
+   * runs at a few frames a second, and Phaser clamps its delta, so a 220 ms fade can take
+   * well over a second of wall clock — a fixed wait fires the next click into the old scene.
+   */
+  async settle(timeout = 12_000): Promise<void> {
+    await this.page.waitForFunction(() => {
+      const scenes = window.__game.scene.getScenes(true);
+      if (scenes.length !== 1) return false;
+      const scene = scenes[0] as any;
+
+      const cam = scene.cameras?.main;
+      if (cam?.fadeEffect?.isRunning || cam?.flashEffect?.isRunning) return false;
+
+      // ignore ambient loops (clouds, floating buttons); wait only on one-shot tweens
+      const busy = scene.tweens.getTweens().some((t: any) => {
+        if (t.isPlaying && !t.isPlaying()) return false;
+        const loops = t.data?.some?.((d: any) => d.repeat === -1);
+        return !loops;
+      });
+      return !busy;
+    }, undefined, { timeout, polling: 100 });
+  }
+
+  async activeScenes(): Promise<string[]> {
+    return this.page.evaluate(() =>
+      window.__game.scene.getScenes(true).map(s => s.scene.key)
+    );
+  }
+
+  async waitForScene(key: string): Promise<void> {
+    await expect
+      .poll(() => this.activeScenes(), { timeout: 20_000, message: `waiting for ${key}` })
+      .toContain(key);
+    await this.settle();
+  }
+
+  /** Tap a map area and wait until its scene is actually up. */
+  async enter(area: keyof typeof AT.map): Promise<void> {
+    const target = AT.map[area];
+    const scene = SCENE_FOR_AREA[area];
+    await this.tap(target.x, target.y);
+    await this.waitForScene(scene);
+  }
+
+  async leave(): Promise<void> {
+    await this.tap(AT.back.x, AT.back.y);
+    await this.waitForScene('HotelMapScene');
+  }
+
+  async start(): Promise<void> {
+    await this.tap(AT.playButton.x, AT.playButton.y);
+    await this.waitForScene('HotelMapScene');
+  }
+
+  /** Poll the save file, so a slow renderer means a slower pass rather than a failure. */
+  expectSave(read: (save: any) => unknown, message?: string) {
+    return expect.poll(async () => read(await this.save()), { timeout: 12_000, message });
+  }
+
+  /** Reads the persisted save, which is the game's single source of truth. */
+  async save(): Promise<any> {
+    return this.page.evaluate(() => {
+      const raw = window.localStorage.getItem('sommer-hotellet-save');
+      return raw ? JSON.parse(raw) : null;
+    });
+  }
+
+  async stars(): Promise<number> {
+    return (await this.save())?.stars ?? 0;
+  }
+
+  /**
+   * Every Text string currently on screen in a scene, containers included.
+   *
+   * Asserting on the save file alone is not enough: the original bug's worst symptom was
+   * that state changed but nothing on screen did. Reading the rendered labels back closes
+   * that loop without resorting to pixel comparison.
+   */
+  async visibleText(sceneKey: string): Promise<string[]> {
+    return this.page.evaluate((key) => {
+      const out: string[] = [];
+      const walk = (objs: any[]) => {
+        for (const o of objs) {
+          if (!o) continue;
+          if (o.type === 'Text' && typeof o.text === 'string' && o.visible) out.push(o.text);
+          if (Array.isArray(o.list)) walk(o.list);
+        }
+      };
+      const scene = window.__game.scene.getScene(key) as any;
+      walk(scene.children.list);
+      return out;
+    }, sceneKey);
+  }
+
+  /** Polls the on-screen labels, so a slow renderer means a slower pass. */
+  expectScreen(sceneKey: string, message?: string) {
+    return expect.poll(() => this.visibleText(sceneKey), { timeout: 12_000, message });
+  }
+
+  /** Reads a live field off a running scene — used to prove state is not being reset. */
+  async sceneField<T>(sceneKey: string, field: string): Promise<T> {
+    return this.page.evaluate(
+      ([k, f]) => (window.__game.scene.getScene(k) as any)[f],
+      [sceneKey, field] as const
+    );
+  }
+
+  expectNoErrors(): void {
+    expect(this.errors, `page errors: ${this.errors.join(' | ')}`).toEqual([]);
+  }
+}
+
+declare global {
+  interface Window {
+    __game: import('phaser').Game;
+  }
+}
+
+const SCENE_FOR_AREA = {
+  lobby: 'LobbyScene',
+  rooms: 'RoomScene',
+  kitchen: 'KitchenScene',
+  pool: 'PoolScene',
+  garden: 'GardenScene',
+} as const;
+
+/** Game-coordinate click targets, kept next to the scenes they belong to. */
+export const AT = {
+  playButton: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.86 },
+  back: { x: 52, y: 38 },
+
+  map: {
+    lobby: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.55 },
+    rooms: { x: GAME_WIDTH / 2 - 212, y: GAME_HEIGHT * 0.38 },
+    kitchen: { x: GAME_WIDTH / 2 + 212, y: GAME_HEIGHT * 0.38 },
+    pool: { x: GAME_WIDTH / 2 - 190, y: GAME_HEIGHT * 0.79 },
+    garden: { x: GAME_WIDTH / 2 + 190, y: GAME_HEIGHT * 0.79 },
+  },
+
+  room: {
+    bed: { x: GAME_WIDTH / 2 - 40, y: GAME_HEIGHT * 0.57 },
+    window: { x: GAME_WIDTH - 132, y: GAME_HEIGHT * 0.33 },
+    vase: { x: 126, y: GAME_HEIGHT * 0.52 },
+    towels: { x: GAME_WIDTH / 2 + 212, y: GAME_HEIGHT * 0.6 },
+    vacuum: { x: GAME_WIDTH - 176, y: GAME_HEIGHT * 0.85 },
+    tab2: { x: GAME_WIDTH / 2, y: 38 },
+  },
+
+  kitchen: {
+    toggle: { x: 190, y: 38 },
+    recipe1: { x: 168, y: 132 },
+    ingredient1: { x: GAME_WIDTH / 2 - 208, y: GAME_HEIGHT * 0.82 },
+    ingredient2: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.82 },
+    ingredient3: { x: GAME_WIDTH / 2 + 208, y: GAME_HEIGHT * 0.82 },
+  },
+
+  pool: {
+    lounger1: { x: 92, y: GAME_HEIGHT * 0.5 },
+    lounger2: { x: 92, y: GAME_HEIGHT * 0.73 },
+  },
+
+  garden: {
+    wateringCan: { x: 190, y: GAME_HEIGHT * 0.86 },
+    sandbox: { x: GAME_WIDTH * 0.5, y: GAME_HEIGHT * 0.78 },
+  },
+
+  lobby: {
+    bell: { x: GAME_WIDTH / 2 + 108, y: GAME_HEIGHT * 0.615 },
+    guest1: { x: 150, y: GAME_HEIGHT * 0.72 },
+  },
+} as const;

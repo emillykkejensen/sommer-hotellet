@@ -1,403 +1,432 @@
-import { COLORS, ROOM_THEMES } from '../config';
-import { gameState } from '../state/GameState';
-import { showStarBurst, showCheckmark, showSparkle } from '../objects/FeedbackEffects';
-import { addBackButton } from '../ui/BackButton';
-import { addStarCounter } from '../ui/StarCounter';
+import Phaser from 'phaser';
+import { COLORS, INK, INK_SOFT, ROOM_THEMES, SIZE, text } from '../config';
+import { Chore, gameState, ROOM_COUNT } from '../state/GameState';
+import { showCheckmark, showSparkle, showStarBurst, showToast } from '../objects/FeedbackEffects';
+import { addBackButton, addStarCounter, award } from '../ui/Chrome';
+import { caption, drawFlower, shadow, tappable } from '../helpers/Draw';
+import { BaseScene } from './BaseScene';
 
-export class RoomScene extends Phaser.Scene {
-  private currentRoom: number = 0;
+interface ChoreSpec {
+  key: Chore;
+  todo: string;
+  done: string;
+  x: number;
+  y: number;
+  hitW: number;
+  hitH: number;
+  labelY: number;
+  draw: (c: Phaser.GameObjects.Container, isDone: boolean) => void;
+}
+
+export class RoomScene extends BaseScene {
+  private currentRoom = 0;
 
   constructor() {
     super({ key: 'RoomScene' });
   }
 
-  create(): void {
+  protected buildBackground(): void {
     const { width, height } = this.scale;
-    this.cameras.main.fadeIn(300);
 
-    // Room selector tabs at top
-    this.createRoomTabs(width, height);
+    const floorY = height * 0.76;
 
-    // Draw the current room
-    this.drawRoom();
+    // floor
+    const floor = this.add.graphics();
+    floor.fillStyle(COLORS.woodDeep);
+    floor.fillRect(0, floorY, width, height - floorY);
+    floor.fillStyle(COLORS.wood);
+    for (let i = -30; i < width; i += 104) {
+      floor.fillRoundedRect(i + 4, floorY + 5, 96, height - floorY, 3);
+    }
+    // skirting board
+    floor.fillStyle(COLORS.wall);
+    floor.fillRect(0, floorY - 9, width, 10);
+    floor.fillStyle(COLORS.wallDeep, 0.6);
+    floor.fillRect(0, floorY - 2, width, 3);
 
+    // rug, so the lower third reads as part of the room
+    floor.fillStyle(COLORS.shadow, 0.08);
+    floor.fillEllipse(width / 2, height * 0.92, 430, 96);
+    floor.fillStyle(COLORS.cream, 0.75);
+    floor.fillEllipse(width / 2, height * 0.915, 420, 90);
+    floor.fillStyle(COLORS.sand, 0.5);
+    floor.fillEllipse(width / 2, height * 0.915, 330, 66);
+    floor.fillStyle(COLORS.cream, 0.8);
+    floor.fillEllipse(width / 2, height * 0.915, 230, 42);
+    this.background.add(floor);
+  }
+
+  protected buildChrome(): void {
     addBackButton(this);
     addStarCounter(this);
   }
 
-  private createRoomTabs(width: number, _height: number): void {
-    for (let i = 0; i < 3; i++) {
-      const tabX = width / 2 - 120 + i * 120;
-      const theme = ROOM_THEMES[i];
+  protected buildDynamic(): void {
+    const { width, height } = this.scale;
+    const theme = ROOM_THEMES[this.currentRoom];
+    const room = gameState.rooms[this.currentRoom];
+
+    // wall — sits in the dynamic layer because its tint follows the selected room
+    const wall = this.add.graphics();
+    wall.fillStyle(theme.wall);
+    wall.fillRect(0, 0, width, height * 0.76);
+    wall.fillStyle(COLORS.white, 0.3);
+    for (let i = 0; i < width; i += 46) {
+      wall.fillRect(i, 0, 22, height * 0.76);
+    }
+    // picture rail
+    wall.fillStyle(theme.accent, 0.22);
+    wall.fillRect(0, 128, width, 5);
+    this.dyn(wall);
+
+    this.buildRoomTabs();
+
+    this.dyn(this.add.text(width / 2, 78, `Rum ${this.currentRoom + 1} · ${theme.name}`,
+      text(SIZE.heading, INK_SOFT, 'bold')).setOrigin(0.5));
+
+    const specs = this.choreSpecs(theme);
+    for (const spec of specs) {
+      this.buildChore(spec, room[spec.key]);
+    }
+
+    if (room.guestId !== null) {
+      this.buildGuestBar(room.guestId);
+    } else {
+      const clean = gameState.isRoomClean(this.currentRoom);
+      this.dyn(caption(this, width / 2, height - 26,
+        clean ? 'Værelset er klar til en gæst' : 'Gør værelset klar',
+        clean ? 'done' : 'idle'));
+    }
+
+    const cleanCount = specs.filter(s => room[s.key]).length;
+    this.buildProgressDots(width / 2, 104, cleanCount, specs.length);
+
+    if (gameState.isRoomClean(this.currentRoom)) {
+      this.time.delayedCall(220, () => showSparkle(this, width / 2, height * 0.42, width * 0.7, height * 0.42));
+    }
+  }
+
+  private choreSpecs(theme: typeof ROOM_THEMES[0]): ChoreSpec[] {
+    const { width, height } = this.scale;
+    return [
+      {
+        key: 'bedMade',
+        todo: 'Red sengen', done: 'Sengen er redt',
+        x: width / 2 - 40, y: height * 0.57,
+        hitW: 190, hitH: 78, labelY: 56,
+        draw: (c, done) => this.drawBed(c, theme, done),
+      },
+      {
+        key: 'curtainsOpen',
+        todo: 'Åbn gardinerne', done: 'Gardinerne er åbne',
+        x: width - 132, y: height * 0.33,
+        hitW: 108, hitH: 92, labelY: 62,
+        draw: (c, done) => this.drawWindow(c, done),
+      },
+      {
+        key: 'flowersPlaced',
+        todo: 'Sæt blomster', done: 'Blomsterne står klar',
+        x: 126, y: height * 0.52,
+        hitW: 84, hitH: 96, labelY: 58,
+        draw: (c, done) => this.drawVase(c, done),
+      },
+      {
+        key: 'towelsFolded',
+        todo: 'Fold håndklæderne', done: 'Håndklæderne er foldet',
+        x: width / 2 + 212, y: height * 0.6,
+        hitW: 92, hitH: 62, labelY: 44,
+        draw: (c, done) => this.drawTowels(c, done),
+      },
+      {
+        key: 'vacuumed',
+        todo: 'Støvsug', done: 'Der er støvsuget',
+        x: width - 176, y: height * 0.85,
+        hitW: 132, hitH: 74, labelY: 48,
+        draw: (c, done) => this.drawVacuum(c, done),
+      },
+    ];
+  }
+
+  private buildChore(spec: ChoreSpec, isDone: boolean): void {
+    const c = this.add.container(spec.x, spec.y);
+    spec.draw(c, isDone);
+    c.add(caption(this, 0, spec.labelY, isDone ? spec.done : spec.todo, isDone ? 'done' : 'idle'));
+    this.dyn(c);
+
+    if (isDone) return;
+
+    tappable(this, c, spec.hitW, spec.hitH, () => {
+      if (!gameState.completeChore(this.currentRoom, spec.key)) return;
+      award(this);
+      showStarBurst(this, spec.x, spec.y - 10);
+      showCheckmark(this, spec.x, spec.y - 34);
+      this.refresh();
+    });
+  }
+
+  private buildProgressDots(x: number, y: number, done: number, total: number): void {
+    const c = this.add.container(x, y);
+    for (let i = 0; i < total; i++) {
+      const dx = (i - (total - 1) / 2) * 20;
+      const dot = this.add.circle(dx, 0, 6, i < done ? COLORS.green : COLORS.white);
+      dot.setStrokeStyle(1.5, i < done ? COLORS.green : COLORS.stoneDeep);
+      c.add(dot);
+    }
+    this.dyn(c);
+  }
+
+  private buildRoomTabs(): void {
+    const { width } = this.scale;
+    for (let i = 0; i < ROOM_COUNT; i++) {
       const isActive = i === this.currentRoom;
+      const theme = ROOM_THEMES[i];
+      const w = 96;
+      const h = 34;
+      const x = width / 2 - 104 + i * 104;
 
-      const tab = this.add.container(tabX, 35);
-
-      const bg = this.add.graphics();
-      bg.fillStyle(isActive ? theme.accent : COLORS.grey, isActive ? 1 : 0.5);
-      bg.fillRoundedRect(-50, -16, 100, 32, 10);
+      const c = this.add.container(x, 38);
+      const g = this.add.graphics();
       if (isActive) {
-        bg.lineStyle(2, COLORS.white);
-        bg.strokeRoundedRect(-50, -16, 100, 32, 10);
+        shadow(g, -w / 2, -h / 2, w, h, h / 2, 2, 0.16);
+        g.fillStyle(theme.accent);
+      } else {
+        g.fillStyle(COLORS.white, 0.7);
       }
-      tab.add(bg);
+      g.fillRoundedRect(-w / 2, -h / 2, w, h, h / 2);
 
-      const label = this.add.text(0, 0, `🛏️ Rum ${i + 1}`, {
-        fontFamily: 'Arial, sans-serif',
-        fontSize: '14px',
-        color: '#FFFFFF',
-        fontStyle: 'bold',
-      }).setOrigin(0.5);
-      tab.add(label);
+      const occupied = gameState.rooms[i].guestId !== null;
+      const label = this.add.text(0, 0, `Rum ${i + 1}`,
+        text(SIZE.label, isActive ? '#FFFFFF' : INK, 'bold')).setOrigin(0.5);
+
+      c.add([g, label]);
+
+      if (occupied) {
+        const pip = this.add.circle(w / 2 - 11, -h / 2 + 9, 4, isActive ? COLORS.white : COLORS.orange);
+        c.add(pip);
+      }
+
+      this.dyn(c);
 
       if (!isActive) {
-        tab.setSize(100, 32);
-        tab.setInteractive({ useHandCursor: true });
-        tab.on('pointerdown', () => {
+        tappable(this, c, w, h, () => {
           this.currentRoom = i;
-          this.scene.restart();
+          this.refresh();
         });
       }
     }
   }
 
-  private drawRoom(): void {
+  private buildGuestBar(guestId: number): void {
     const { width, height } = this.scale;
-    const theme = ROOM_THEMES[this.currentRoom];
-    const room = gameState.rooms[this.currentRoom];
+    const guest = gameState.guests.find(g => g.id === guestId);
+    if (!guest) return;
 
-    // Floor
-    this.add.graphics()
-      .fillStyle(COLORS.wood)
-      .fillRect(0, height * 0.7, width, height * 0.3);
+    const t = this.add.text(0, 0, `Gæst: ${guest.name}`, text(SIZE.label, INK, 'semibold')).setOrigin(0.5);
+    const w = t.width + 40;
+    const h = t.height + 16;
+    const g = this.add.graphics();
+    shadow(g, -w / 2, -h / 2, w, h, h / 2, 2, 0.12);
+    g.fillStyle(COLORS.white, 0.94);
+    g.fillRoundedRect(-w / 2, -h / 2, w, h, h / 2);
+    const dot = this.add.circle(-w / 2 + 15, 0, 6, guest.color);
 
-    // Wall
-    this.add.graphics()
-      .fillStyle(theme.wall)
-      .fillRect(0, 55, width, height * 0.65);
+    this.dyn(this.add.container(width / 2 - 60, height - 30, [g, t, dot]));
 
-    // Window
-    this.drawWindow(width - 130, height * 0.3, room.curtainsOpen);
+    // check out
+    const bw = 116;
+    const bh = 36;
+    const btn = this.add.container(width - 96, height - 30);
+    const bg = this.add.graphics();
+    shadow(bg, -bw / 2, -bh / 2, bw, bh, bh / 2, 2, 0.16);
+    bg.fillStyle(COLORS.red);
+    bg.fillRoundedRect(-bw / 2, -bh / 2, bw, bh, bh / 2);
+    bg.fillStyle(COLORS.white, 0.22);
+    bg.fillRoundedRect(-bw / 2 + 3, -bh / 2 + 3, bw - 6, bh * 0.42, bh / 2);
+    btn.add([bg, this.add.text(0, 0, 'Tjek ud', text(SIZE.label, '#FFFFFF', 'bold')).setOrigin(0.5)]);
+    this.dyn(btn);
 
-    // Bed
-    this.drawBed(width / 2 - 80, height * 0.55, theme, room.bedMade);
-
-    // Flowers
-    this.drawFlowerVase(130, height * 0.45, room.flowersPlaced);
-
-    // Vacuum / clean floor
-    this.drawVacuum(width - 100, height * 0.75, room.vacuumed);
-
-    // Towels
-    this.drawTowels(width / 2 + 130, height * 0.52, room.towelsFolded);
-
-    // Guest info
-    if (room.guestId !== null) {
-      const guest = gameState.guests.find(g => g.id === room.guestId);
-      if (guest) {
-        this.add.text(width / 2, height - 30, `Gæst: ${guest.name}`, {
-          fontFamily: 'Arial, sans-serif',
-          fontSize: '16px',
-          color: '#FFFFFF',
-          fontStyle: 'bold',
-          backgroundColor: '#00000066',
-          padding: { x: 8, y: 4 },
-        }).setOrigin(0.5);
-      }
-
-      // Check out button
-      const checkOutBtn = this.add.container(width - 90, height - 30);
-      const coBg = this.add.graphics();
-      coBg.fillStyle(COLORS.red, 0.8);
-      coBg.fillRoundedRect(-60, -16, 120, 32, 10);
-      checkOutBtn.add(coBg);
-      checkOutBtn.add(this.add.text(0, 0, '👋 Tjek ud', {
-        fontFamily: 'Arial, sans-serif',
-        fontSize: '14px',
-        color: '#FFFFFF',
-        fontStyle: 'bold',
-      }).setOrigin(0.5));
-      checkOutBtn.setSize(120, 32);
-      checkOutBtn.setInteractive({ useHandCursor: true });
-      checkOutBtn.on('pointerdown', () => {
-        gameState.checkOutGuest(this.currentRoom);
-        this.scene.restart();
-      });
-    }
-
-    // Room complete check
-    if (gameState.isRoomClean(this.currentRoom)) {
-      this.time.delayedCall(300, () => {
-        showSparkle(this, width / 2, height / 2, width * 0.8, height * 0.5);
-      });
-    }
-
-    // Room name
-    this.add.text(width / 2, 70, theme.name, {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '20px',
-      color: '#555555',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
+    tappable(this, btn, bw, bh, () => {
+      gameState.checkOutGuest(this.currentRoom);
+      showToast(this, width / 2, height * 0.45, `${guest.name} siger tak for besøget`);
+      this.refresh();
+    });
   }
 
-  private drawWindow(x: number, y: number, isOpen: boolean): void {
-    const container = this.add.container(x, y);
+  // ---------- chore art ----------
 
-    // Window frame
-    const frame = this.add.graphics();
-    frame.fillStyle(COLORS.white);
-    frame.fillRect(-45, -35, 90, 70);
+  private drawBed(c: Phaser.GameObjects.Container, theme: typeof ROOM_THEMES[0], made: boolean): void {
+    const g = this.add.graphics();
 
-    if (isOpen) {
-      // Blue sky through window
-      frame.fillStyle(COLORS.sky);
-      frame.fillRect(-40, -30, 80, 60);
-      // Sun
-      frame.fillStyle(COLORS.sunYellow);
-      frame.fillCircle(15, -10, 12);
+    shadow(g, -86, 26, 176, 16, 8, 3, 0.14);
+
+    // frame + headboard
+    g.fillStyle(COLORS.woodDeep);
+    g.fillRoundedRect(-92, -30, 22, 62, 8);
+    g.fillStyle(COLORS.wood);
+    g.fillRoundedRect(-86, -6, 176, 38, 8);
+
+    // mattress
+    g.fillStyle(COLORS.white);
+    g.fillRoundedRect(-82, -14, 168, 30, 7);
+
+    if (made) {
+      g.fillStyle(theme.duvet);
+      g.fillRoundedRect(-46, -15, 132, 31, 8);
+      // turned-down sheet
+      g.fillStyle(COLORS.white, 0.9);
+      g.fillRoundedRect(-46, -15, 132, 10, 5);
+      g.fillStyle(theme.cushion, 0.5);
+      g.fillRoundedRect(-46, -6, 132, 3, 1.5);
+      // pillow
+      g.fillStyle(COLORS.white);
+      g.fillRoundedRect(-82, -14, 42, 26, 10);
+      g.lineStyle(1.5, COLORS.stoneDeep, 0.3);
+      g.strokeRoundedRect(-82, -14, 42, 26, 10);
+      // folded throw at the foot
+      g.fillStyle(theme.cushion);
+      g.fillRoundedRect(46, -13, 38, 27, 7);
+      g.fillStyle(COLORS.white, 0.25);
+      g.fillRoundedRect(46, -13, 38, 9, 5);
     } else {
-      // Curtains closed
-      frame.fillStyle(COLORS.red, 0.7);
-      frame.fillRect(-40, -30, 38, 60);
-      frame.fillRect(2, -30, 38, 60);
-      // Curtain lines
-      frame.lineStyle(1, COLORS.roofDark, 0.3);
-      for (let i = 0; i < 5; i++) {
-        frame.lineBetween(-38 + i * 8, -30, -38 + i * 8, 30);
-        frame.lineBetween(4 + i * 8, -30, 4 + i * 8, 30);
+      g.fillStyle(theme.duvet, 0.85);
+      g.fillRoundedRect(-30, -6, 62, 24, 9);
+      g.fillRoundedRect(22, -16, 54, 28, 11);
+      g.fillStyle(COLORS.white, 0.85);
+      g.fillRoundedRect(-78, -6, 34, 20, 8);
+    }
+
+    c.add(g);
+  }
+
+  private drawWindow(c: Phaser.GameObjects.Container, open: boolean): void {
+    const g = this.add.graphics();
+
+    g.fillStyle(COLORS.wallDeep);
+    g.fillRoundedRect(-52, -42, 104, 84, 8);
+    g.fillStyle(COLORS.window);
+    g.fillRoundedRect(-45, -35, 90, 70, 5);
+
+    if (open) {
+      g.fillStyle(COLORS.sky);
+      g.fillRoundedRect(-45, -35, 90, 70, 5);
+      g.fillStyle(COLORS.grass);
+      g.fillRect(-45, 16, 90, 19);
+      g.fillStyle(COLORS.sun);
+      g.fillCircle(22, -18, 11);
+      g.fillStyle(COLORS.white, 0.85);
+      g.fillCircle(-18, -20, 9);
+      g.fillCircle(-8, -17, 7);
+      // pulled-back curtains
+      g.fillStyle(COLORS.roof, 0.85);
+      g.fillRoundedRect(-45, -35, 14, 70, 4);
+      g.fillRoundedRect(31, -35, 14, 70, 4);
+    } else {
+      g.fillStyle(COLORS.roof, 0.9);
+      g.fillRoundedRect(-45, -35, 44, 70, 4);
+      g.fillRoundedRect(1, -35, 44, 70, 4);
+      g.fillStyle(COLORS.roofDeep, 0.35);
+      for (let i = 0; i < 4; i++) {
+        g.fillRect(-42 + i * 11, -35, 4, 70);
+        g.fillRect(4 + i * 11, -35, 4, 70);
       }
     }
-    container.add(frame);
 
-    // Label
-    const label = this.add.text(0, 45, isOpen ? '☀️ Åben' : '🪟 Åbn gardiner', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '12px',
-      color: '#555',
-      fontStyle: 'bold',
-      backgroundColor: '#FFFFFFCC',
-      padding: { x: 4, y: 2 },
-    }).setOrigin(0.5);
-    container.add(label);
+    // rail
+    g.fillStyle(COLORS.woodDeep);
+    g.fillRoundedRect(-56, -46, 112, 7, 3.5);
 
-    if (!isOpen) {
-      container.setSize(90, 80);
-      container.setInteractive({ useHandCursor: true });
-      container.on('pointerdown', () => {
-        gameState.rooms[this.currentRoom].curtainsOpen = true;
-        gameState.save();
-        showStarBurst(this, x, y);
-        showCheckmark(this, x, y);
-        this.scene.restart();
-      });
-    }
+    c.add(g);
   }
 
-  private drawBed(x: number, y: number, theme: typeof ROOM_THEMES[0], isMade: boolean): void {
-    const container = this.add.container(x, y);
+  private drawVase(c: Phaser.GameObjects.Container, hasFlowers: boolean): void {
+    const g = this.add.graphics();
 
-    // Bed frame
-    const bed = this.add.graphics();
-    bed.fillStyle(COLORS.wood);
-    bed.fillRoundedRect(-60, -15, 160, 50, 8);
+    shadow(g, -26, 34, 52, 12, 6, 3, 0.14);
+    g.fillStyle(COLORS.woodDeep);
+    g.fillRoundedRect(-22, 14, 44, 30, 5);
+    g.fillStyle(COLORS.wood);
+    g.fillRoundedRect(-27, 10, 54, 8, 4);
 
-    // Mattress
-    bed.fillStyle(COLORS.white);
-    bed.fillRect(-55, -10, 150, 35);
+    g.fillStyle(COLORS.purple, 0.9);
+    g.fillRoundedRect(-11, -12, 22, 24, { tl: 4, tr: 4, bl: 9, br: 9 });
+    g.fillStyle(COLORS.white, 0.25);
+    g.fillRoundedRect(-11, -12, 8, 24, { tl: 4, tr: 0, bl: 8, br: 0 });
 
-    if (isMade) {
-      // Nice made bed with duvet
-      bed.fillStyle(theme.bedColor);
-      bed.fillRoundedRect(-55, -5, 150, 28, 5);
-      // Pillow
-      bed.fillStyle(COLORS.white);
-      bed.fillRoundedRect(-50, -8, 35, 20, 8);
-    } else {
-      // Messy bed
-      bed.fillStyle(theme.bedColor, 0.6);
-      bed.fillRect(-45, 0, 60, 20);
-      bed.fillRect(10, -5, 50, 25);
-      // Messy pillow
-      bed.fillStyle(COLORS.white, 0.7);
-      bed.fillRoundedRect(-50, -5, 30, 18, 6);
-    }
-    container.add(bed);
-
-    const label = this.add.text(20, 45, isMade ? '✅ Redt' : '🛏️ Red sengen', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '12px',
-      color: '#555',
-      fontStyle: 'bold',
-      backgroundColor: '#FFFFFFCC',
-      padding: { x: 4, y: 2 },
-    }).setOrigin(0.5);
-    container.add(label);
-
-    if (!isMade) {
-      container.setSize(160, 60);
-      container.setInteractive({ useHandCursor: true });
-      container.on('pointerdown', () => {
-        gameState.rooms[this.currentRoom].bedMade = true;
-        gameState.save();
-        showStarBurst(this, x + 20, y);
-        showCheckmark(this, x + 20, y - 20);
-        this.scene.restart();
-      });
-    }
-  }
-
-  private drawFlowerVase(x: number, y: number, hasFlowers: boolean): void {
-    const container = this.add.container(x, y);
-
-    // Table
-    const table = this.add.graphics();
-    table.fillStyle(COLORS.wood);
-    table.fillRect(-20, 10, 40, 30);
-    table.fillRect(-25, 8, 50, 6);
-    container.add(table);
-
-    // Vase
-    const vase = this.add.graphics();
-    vase.fillStyle(COLORS.purple, 0.8);
-    vase.fillRoundedRect(-10, -15, 20, 25, 5);
-    vase.fillRect(-6, -18, 12, 8);
-    container.add(vase);
+    c.add(g);
 
     if (hasFlowers) {
-      const flowers = this.add.graphics();
-      const flowerColors = [COLORS.pink, COLORS.yellow, COLORS.red];
-      for (let i = 0; i < 3; i++) {
-        const fx = -8 + i * 8;
-        const fy = -30 - i * 5;
-        // Stem
-        flowers.lineStyle(2, COLORS.green);
-        flowers.lineBetween(fx, -18, fx, fy);
-        // Petals
-        flowers.fillStyle(flowerColors[i]);
-        flowers.fillCircle(fx, fy, 5);
-        flowers.fillStyle(COLORS.yellow);
-        flowers.fillCircle(fx, fy, 2);
-      }
-      container.add(flowers);
-    }
-
-    const label = this.add.text(0, 50, hasFlowers ? '✅ Blomster' : '🌸 Sæt blomster', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '12px',
-      color: '#555',
-      fontStyle: 'bold',
-      backgroundColor: '#FFFFFFCC',
-      padding: { x: 4, y: 2 },
-    }).setOrigin(0.5);
-    container.add(label);
-
-    if (!hasFlowers) {
-      container.setSize(50, 70);
-      container.setInteractive({ useHandCursor: true });
-      container.on('pointerdown', () => {
-        gameState.rooms[this.currentRoom].flowersPlaced = true;
-        gameState.save();
-        showStarBurst(this, x, y - 20);
-        showCheckmark(this, x, y - 30);
-        this.scene.restart();
+      const colors = [COLORS.pink, COLORS.yellow, COLORS.white];
+      [-9, 0, 9].forEach((dx, i) => {
+        const stem = this.add.graphics();
+        stem.lineStyle(2.5, COLORS.grassDeep);
+        stem.beginPath();
+        stem.moveTo(dx * 0.4, -10);
+        stem.lineTo(dx, -28 - i * 4);
+        stem.strokePath();
+        c.add(stem);
+        c.add(drawFlower(this, dx, -30 - i * 4, colors[i], 0.85));
       });
     }
   }
 
-  private drawVacuum(x: number, y: number, isVacuumed: boolean): void {
-    const container = this.add.container(x, y);
+  private drawTowels(c: Phaser.GameObjects.Container, folded: boolean): void {
+    const g = this.add.graphics();
 
-    if (!isVacuumed) {
-      // Dirt spots on floor
-      const dirt = this.add.graphics();
-      dirt.fillStyle(COLORS.brown, 0.3);
-      for (let i = 0; i < 6; i++) {
-        dirt.fillCircle(
-          Phaser.Math.Between(-60, 60),
-          Phaser.Math.Between(-20, 20),
-          Phaser.Math.Between(3, 8)
-        );
-      }
-      container.add(dirt);
-
-      // Vacuum cleaner icon
-      const vacuum = this.add.graphics();
-      vacuum.fillStyle(COLORS.red);
-      vacuum.fillRoundedRect(-12, -25, 24, 20, 6);
-      vacuum.fillStyle(COLORS.grey);
-      vacuum.fillRect(-3, -5, 6, 25);
-      vacuum.fillRoundedRect(-10, 15, 20, 10, 4);
-      container.add(vacuum);
-    }
-
-    const label = this.add.text(0, 35, isVacuumed ? '✅ Støvsuget' : '🧹 Støvsug', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '12px',
-      color: isVacuumed ? '#555' : '#FFF',
-      fontStyle: 'bold',
-      backgroundColor: isVacuumed ? '#FFFFFFCC' : '#00000066',
-      padding: { x: 4, y: 2 },
-    }).setOrigin(0.5);
-    container.add(label);
-
-    if (!isVacuumed) {
-      container.setSize(120, 60);
-      container.setInteractive({ useHandCursor: true });
-      container.on('pointerdown', () => {
-        gameState.rooms[this.currentRoom].vacuumed = true;
-        gameState.save();
-        showStarBurst(this, x, y);
-        showCheckmark(this, x, y - 20);
-        this.scene.restart();
+    if (folded) {
+      shadow(g, -26, 14, 52, 8, 4, 2, 0.12);
+      const shades = [COLORS.white, 0xF2F6F8, COLORS.waterLight];
+      shades.forEach((shade, i) => {
+        g.fillStyle(shade);
+        g.fillRoundedRect(-24 + i * 2, 6 - i * 11, 48 - i * 4, 10, 4);
+        g.lineStyle(1, COLORS.stoneDeep, 0.35);
+        g.strokeRoundedRect(-24 + i * 2, 6 - i * 11, 48 - i * 4, 10, 4);
       });
-    }
-  }
-
-  private drawTowels(x: number, y: number, isFolded: boolean): void {
-    const container = this.add.container(x, y);
-
-    const towel = this.add.graphics();
-    if (isFolded) {
-      // Neatly folded towels
-      towel.fillStyle(COLORS.white);
-      towel.fillRoundedRect(-20, -5, 40, 12, 3);
-      towel.fillStyle(0xE8E8E8);
-      towel.fillRoundedRect(-18, 8, 36, 10, 3);
-      towel.lineStyle(1, COLORS.water, 0.5);
-      towel.strokeRoundedRect(-20, -5, 40, 12, 3);
     } else {
-      // Messy towels on floor
-      towel.fillStyle(COLORS.white, 0.8);
-      towel.fillRect(-25, -5, 30, 8);
-      towel.setAngle(15);
-      const towel2 = this.add.graphics();
-      towel2.fillStyle(0xE8E8E8, 0.8);
-      towel2.fillRect(x - 10, y + 5, 25, 8);
-      towel2.setAngle(-10);
+      // Previously a second graphics object was created in world coordinates, never
+      // parented and never destroyed, so it stayed on screen as a stray white sliver.
+      shadow(g, -32, 14, 64, 12, 6, 2, 0.12);
+      // a tumbled pile, not a pale smudge
+      g.fillStyle(COLORS.waterLight);
+      g.fillRoundedRect(-32, 4, 44, 15, 7);
+      g.lineStyle(1.5, COLORS.waterDeep, 0.35);
+      g.strokeRoundedRect(-32, 4, 44, 15, 7);
+      g.fillStyle(COLORS.white);
+      g.fillRoundedRect(-14, -6, 46, 15, 7);
+      g.lineStyle(1.5, COLORS.stoneDeep, 0.35);
+      g.strokeRoundedRect(-14, -6, 46, 15, 7);
+      g.fillStyle(0xF2F6F8);
+      g.fillRoundedRect(-22, 14, 40, 13, 6);
+      g.lineStyle(1.5, COLORS.stoneDeep, 0.3);
+      g.strokeRoundedRect(-22, 14, 40, 13, 6);
     }
-    container.add(towel);
 
-    const label = this.add.text(0, 30, isFolded ? '✅ Foldet' : '🧺 Fold håndklæder', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '12px',
-      color: '#555',
-      fontStyle: 'bold',
-      backgroundColor: '#FFFFFFCC',
-      padding: { x: 4, y: 2 },
-    }).setOrigin(0.5);
-    container.add(label);
+    c.add(g);
+  }
 
-    if (!isFolded) {
-      container.setSize(60, 40);
-      container.setInteractive({ useHandCursor: true });
-      container.on('pointerdown', () => {
-        gameState.rooms[this.currentRoom].towelsFolded = true;
-        gameState.save();
-        showStarBurst(this, x, y);
-        showCheckmark(this, x, y - 15);
-        this.scene.restart();
-      });
+  private drawVacuum(c: Phaser.GameObjects.Container, cleaned: boolean): void {
+    const g = this.add.graphics();
+
+    if (cleaned) {
+      g.fillStyle(COLORS.white, 0.3);
+      g.fillEllipse(0, 8, 110, 26);
+    } else {
+      g.fillStyle(COLORS.shadow, 0.16);
+      const spots: [number, number, number][] = [
+        [-46, 4, 6], [-24, 14, 4], [-6, -2, 7], [16, 12, 5], [38, 2, 6], [50, 16, 4],
+      ];
+      for (const [sx, sy, r] of spots) g.fillCircle(sx, sy, r);
+
+      // vacuum body
+      g.fillStyle(COLORS.roofDeep);
+      g.fillRoundedRect(-16, -30, 32, 22, 9);
+      g.fillStyle(COLORS.red);
+      g.fillRoundedRect(-16, -30, 32, 14, 8);
+      g.fillStyle(COLORS.stoneDeep);
+      g.fillRoundedRect(-3, -12, 6, 22, 3);
+      g.fillStyle(COLORS.stone);
+      g.fillRoundedRect(-14, 8, 28, 11, 5);
     }
+
+    c.add(g);
   }
 }

@@ -2,7 +2,9 @@ import Phaser from 'phaser';
 import { COLORS, SIZE, text } from '../config';
 import { GuestData, gameState, MAX_WAITING_GUESTS, ROOM_COUNT } from '../state/GameState';
 import { showHearts, showStarBurst, showToast } from '../objects/FeedbackEffects';
-import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
+import { addBackButton, addSceneTitle, addStarCounter } from '../ui/Chrome';
+import { rewardFor } from '../helpers/Reward';
+import { placeDecorations } from './ShopScene';
 import { caption, drawPerson, shadow, tappable } from '../helpers/Draw';
 import { BaseScene } from './BaseScene';
 
@@ -61,6 +63,8 @@ export class LobbyScene extends BaseScene {
     this.buildDesk(width / 2, height * 0.62);
     // sits on the desk top, not floating above it
     this.buildBell(width / 2 + 108, height * 0.615);
+
+    placeDecorations(this, 'lobby', this.dynamic);
 
     gameState.getWaitingGuests().forEach((guest, i) => this.buildGuest(guest, i, false));
 
@@ -255,19 +259,22 @@ export class LobbyScene extends BaseScene {
         return;
       }
 
-      award(this);
       showStarBurst(this, slot.x, slot.y - 30);
       showHearts(this, slot.x, slot.y - 46);
       showToast(this, slot.x, slot.y - 66, `Værelse ${room + 1}`, '#4A7F33');
 
-      // walk off to the room, then rebuild so the remaining guests close the gap
-      this.tweens.add({
-        targets: c,
-        x: this.scale.width + 70,
-        duration: 900,
-        delay: 700,
-        ease: 'Sine.easeIn',
-        onComplete: () => this.refresh(),
+      rewardFor(this, 'lobby', {
+        after: () => {
+          // walk off to the room, then rebuild so the remaining guests close the gap
+          this.tweens.add({
+            targets: c,
+            x: this.scale.width + 70,
+            duration: 900,
+            delay: 200,
+            ease: 'Sine.easeIn',
+            onComplete: () => this.refresh(),
+          });
+        },
       });
     });
   }

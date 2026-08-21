@@ -2,7 +2,9 @@ import Phaser from 'phaser';
 import { COLORS, INK, INK_SOFT, ROOM_THEMES, SIZE, text } from '../config';
 import { Chore, gameState, ROOM_COUNT } from '../state/GameState';
 import { showCheckmark, showSparkle, showStarBurst, showToast } from '../objects/FeedbackEffects';
-import { addBackButton, addStarCounter, award } from '../ui/Chrome';
+import { addBackButton, addStarCounter } from '../ui/Chrome';
+import { rewardFor } from '../helpers/Reward';
+import { placeDecorations } from './ShopScene';
 import { caption, drawFlower, shadow, tappable } from '../helpers/Draw';
 import { BaseScene } from './BaseScene';
 
@@ -98,6 +100,8 @@ export class RoomScene extends BaseScene {
         clean ? 'done' : 'idle'));
     }
 
+    placeDecorations(this, 'rooms', this.dynamic);
+
     const cleanCount = specs.filter(s => room[s.key]).length;
     this.buildProgressDots(width / 2, 104, cleanCount, specs.length);
 
@@ -141,7 +145,8 @@ export class RoomScene extends BaseScene {
         key: 'vacuumed',
         todo: 'Støvsug', done: 'Der er støvsuget',
         x: width - 176, y: height * 0.85,
-        hitW: 132, hitH: 74, labelY: 48,
+        // caption above, so it clears the guest bar and the check-out button
+        hitW: 132, hitH: 74, labelY: -52,
         draw: (c, done) => this.drawVacuum(c, done),
       },
     ];
@@ -157,10 +162,10 @@ export class RoomScene extends BaseScene {
 
     tappable(this, c, spec.hitW, spec.hitH, () => {
       if (!gameState.completeChore(this.currentRoom, spec.key)) return;
-      award(this);
+      // The chore lands straight away; the task (in Lær mode) decides the stars.
       showStarBurst(this, spec.x, spec.y - 10);
       showCheckmark(this, spec.x, spec.y - 34);
-      this.refresh();
+      rewardFor(this, 'rooms', { after: () => this.refresh() });
     });
   }
 

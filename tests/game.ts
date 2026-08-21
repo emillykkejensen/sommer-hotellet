@@ -10,7 +10,7 @@ import { GAME_HEIGHT, GAME_WIDTH } from '../src/config';
 export class Game {
   readonly errors: string[] = [];
 
-  constructor(private page: Page) {
+  constructor(readonly page: Page) {
     // Uncaught exceptions only. Console resource errors (a blocked webfont CDN, a
     // missing favicon) are environmental and would make the suite fail offline.
     page.on('pageerror', e => this.errors.push(e.message));
@@ -52,19 +52,24 @@ export class Game {
   async settle(timeout = 12_000): Promise<void> {
     await this.page.waitForFunction(() => {
       const scenes = window.__game.scene.getScenes(true);
-      if (scenes.length !== 1) return false;
-      const scene = scenes[0] as any;
+      if (scenes.length === 0) return false;
 
-      const cam = scene.cameras?.main;
-      if (cam?.fadeEffect?.isRunning || cam?.flashEffect?.isRunning) return false;
+      // A task overlay runs alongside its room, so more than one active scene is normal —
+      // every active scene has to be still, not just the only one.
+      for (const raw of scenes) {
+        const scene = raw as any;
+        const cam = scene.cameras?.main;
+        if (cam?.fadeEffect?.isRunning || cam?.flashEffect?.isRunning) return false;
 
-      // ignore ambient loops (clouds, floating buttons); wait only on one-shot tweens
-      const busy = scene.tweens.getTweens().some((t: any) => {
-        if (t.isPlaying && !t.isPlaying()) return false;
-        const loops = t.data?.some?.((d: any) => d.repeat === -1);
-        return !loops;
-      });
-      return !busy;
+        // ignore ambient loops (clouds, floating buttons); wait only on one-shot tweens
+        const busy = scene.tweens.getTweens().some((t: any) => {
+          if (t.isPlaying && !t.isPlaying()) return false;
+          const loops = t.data?.some?.((d: any) => d.repeat === -1);
+          return !loops;
+        });
+        if (busy) return false;
+      }
+      return true;
     }, undefined, { timeout, polling: 100 });
   }
 
@@ -152,6 +157,193 @@ export class Game {
     );
   }
 
+  /* ------------------------------------------------------------- tasks --- */
+
+  async taskOpen(): Promise<boolean> {
+    return (await this.activeScenes()).includes('TaskOverlayScene');
+  }
+
+  /** The overlay launches behind a short delay, so poll rather than check once. */
+  async waitForTask(timeout = 8_000): Promise<boolean> {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      if (await this.taskOpen()) {
+        await this.settle();
+        return true;
+      }
+      await this.page.waitForTimeout(120);
+    }
+    return false;
+  }
+
+  /**
+   * Interactive targets in the task overlay, with their hit boxes.
+   *
+   * Used to assert that no two controls sit on top of each other — the number pad shipped
+   * with Slet and Svar covering the 5 and the 0, which made those digits untappable.
+   */
+  async taskControls(): Promise<{ label: string | null; x: number; y: number; w: number; h: number }[]> {
+    const all = (await this.readTask()).hits;
+    // drop the full-canvas scrim
+    return all.filter(h => h.w > 0 && h.w < 400);
+  }
+
+  /** Reads the live task, including where its interactive targets are on screen. */
+  private async readTask(): Promise<{
+    body: any;
+    skill: string;
+    prompt: string;
+    hits: { x: number; y: number; label: string | null; w: number; h: number }[];
+  }> {
+    const info = await this.page.evaluate(() => {
+      const scene = window.__game.scene.getScene('TaskOverlayScene') as any;
+      if (!scene?.scene.isActive()) return null;
+
+      const hits: any[] = [];
+      const walk = (objs: any[], ox: number, oy: number) => {
+        for (const o of objs || []) {
+          if (!o) continue;
+          const x = ox + (o.x || 0);
+          const y = oy + (o.y || 0);
+          if (o.input) {
+            hits.push({
+              x, y,
+              label: o.list?.find?.((c: any) => c.type === 'Text')?.text ?? null,
+              w: o.input.hitArea?.width ?? 0,
+              h: o.input.hitArea?.height ?? 0,
+            });
+          }
+          if (Array.isArray(o.list)) walk(o.list, x, y);
+        }
+      };
+      walk(scene.children.list, 0, 0);
+      return { body: scene.task.body, skill: scene.task.skill, prompt: scene.task.prompt, hits };
+    });
+    if (!info) throw new Error('no task open');
+    return info;
+  }
+
+  /** Answers the open task correctly and waits for it to close. */
+  async solveTask(): Promise<{ template: string; skill: string }> {
+    const { body, skill, hits } = await this.readTask();
+    await this.tapTaskAnswer(body, hits, true);
+    await this.page.waitForFunction(
+      () => !window.__game.scene.getScenes(true).some(s => s.scene.key === 'TaskOverlayScene'),
+      undefined,
+      { timeout: 20_000 }
+    );
+    await this.settle();
+    return { template: body.template, skill };
+  }
+
+  /** Answers wrong once. The overlay must stay open — there is no fail state. */
+  async answerTaskWrong(): Promise<void> {
+    const { body, hits } = await this.readTask();
+    await this.tapTaskAnswer(body, hits, false);
+  }
+
+  private async tapTaskAnswer(body: any, hits: any[], correct: boolean): Promise<void> {
+    // The scrim covers the whole canvas and the speaker is small; the answer targets sit
+    // between those two sizes.
+    const inBody = hits.filter(h => h.w > 45 && h.w < 240);
+
+    switch (body.template) {
+      case 'pick-one': {
+        const target = correct
+          ? inBody.find(h => h.label === body.answer)
+          : inBody.find(h => h.label !== null && h.label !== body.answer);
+        if (!target) throw new Error(`pick-one target missing (${correct ? 'right' : 'wrong'})`);
+        await this.tap(target.x, target.y);
+        return;
+      }
+      case 'count-taps': {
+        const icon = inBody.find(h => h.label === null && h.w >= 100);
+        if (!icon) throw new Error('count-taps icon missing');
+        const taps = correct ? body.target : body.target + 1;
+        for (let i = 0; i < taps; i++) await this.tap(icon.x, icon.y);
+        return;
+      }
+      case 'number-pad': {
+        const digits = String(correct ? body.answer : body.answer + 1);
+        for (const d of digits) {
+          const key = inBody.find(h => h.label === d);
+          if (!key) throw new Error(`digit ${d} missing`);
+          await this.tap(key.x, key.y);
+        }
+        const submit = inBody.find(h => h.label === 'Svar');
+        if (!submit) throw new Error('submit missing');
+        await this.tap(submit.x, submit.y);
+        return;
+      }
+      case 'pattern': {
+        const swatches = inBody.filter(h => h.label === null && h.w === 64);
+        const index = correct
+          ? body.options.indexOf(body.answer)
+          : body.options.findIndex((o: number) => o !== body.answer);
+        await this.tap(swatches[index].x, swatches[index].y);
+        return;
+      }
+      default:
+        throw new Error(`unknown template ${body.template}`);
+    }
+  }
+
+  /* ------------------------------------------------------------ helpers --- */
+
+  /** Finds a shop card by the item name printed on it. */
+  async shopCard(name: string): Promise<{ x: number; y: number }> {
+    const card = await this.page.evaluate((itemName) => {
+      const scene = window.__game.scene.getScene('ShopScene') as any;
+      const found: any[] = [];
+      const walk = (objs: any[], ox: number, oy: number) => {
+        for (const o of objs || []) {
+          if (!o) continue;
+          const x = ox + (o.x || 0);
+          const y = oy + (o.y || 0);
+          if (o.input && o.input.hitArea?.width === 168) {
+            const labels = (o.list || [])
+              .filter((c: any) => c.type === 'Text')
+              .map((c: any) => c.text);
+            if (labels.includes(itemName)) found.push({ x, y });
+          }
+          if (Array.isArray(o.list)) walk(o.list, x, y);
+        }
+      };
+      walk(scene.children.list, 0, 0);
+      return found[0] ?? null;
+    }, name);
+    if (!card) throw new Error(`shop card not found: ${name}`);
+    return card;
+  }
+
+  /** Seeds a save before the page loads, to reach a state without grinding for it. */
+  static async openWithSave(page: Page, patch: Record<string, unknown>): Promise<Game> {
+    const game = new Game(page);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.addInitScript((seed) => {
+      window.localStorage.setItem('sommer-hotellet-save', JSON.stringify(seed));
+    }, {
+      version: 3,
+      stars: 0,
+      guests: [],
+      rooms: Array.from({ length: 3 }, () => ({
+        bedMade: false, curtainsOpen: false, flowersPlaced: false,
+        vacuumed: false, towelsFolded: false, guestId: null,
+      })),
+      kitchen: { recipe: null, added: [], showingDining: false, dishesServed: 0 },
+      pool: { towels: [false, false, false, false] },
+      garden: { flowers: [false, false, false, false, false], sandcastle: 0, apples: [false, false, false, false, false] },
+      nextGuestId: 0,
+      owned: [],
+      settings: { mode: 'leg', matematik: true, dansk: true, speak: false },
+      skills: {},
+      ...patch,
+    });
+    await page.goto('/');
+    await game.waitForScene('MainMenuScene');
+    return game;
+  }
+
   expectNoErrors(): void {
     expect(this.errors, `page errors: ${this.errors.join(' | ')}`).toEqual([]);
   }
@@ -215,4 +407,9 @@ export const AT = {
     bell: { x: GAME_WIDTH / 2 + 108, y: GAME_HEIGHT * 0.615 },
     guest1: { x: 150, y: GAME_HEIGHT * 0.72 },
   },
+
+  shop: { x: GAME_WIDTH - 74, y: 84 },
+  settings: { x: 52, y: 84 },
+  settingsModeLaer: { x: GAME_WIDTH / 2 + 158, y: 162 },
+  settingsModeLeg: { x: GAME_WIDTH / 2 - 158, y: 162 },
 } as const;

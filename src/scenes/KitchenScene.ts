@@ -3,6 +3,8 @@ import { COLORS, INK, INK_SOFT, SIZE, text } from '../config';
 import { gameState } from '../state/GameState';
 import { showCheckmark, showHearts, showSparkle, showStarBurst, showToast } from '../objects/FeedbackEffects';
 import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
+import { rewardFor } from '../helpers/Reward';
+import { placeDecorations } from './ShopScene';
 import { caption, drawHead, shadow, tappable } from '../helpers/Draw';
 import { BaseScene } from './BaseScene';
 
@@ -164,6 +166,7 @@ export class KitchenScene extends BaseScene {
       this.buildRecipeCard(r, x, 132, r.name === recipe?.name);
     });
 
+    placeDecorations(this, 'kitchen', this.dynamic);
     this.buildStove(width / 2, height * 0.56, recipe, added.length);
 
     if (!recipe) {
@@ -267,16 +270,20 @@ export class KitchenScene extends BaseScene {
         onComplete: () => {
           holder.destroy();
           showCheckmark(this, width / 2, height * 0.47);
-          award(this);
           showStarBurst(this, width / 2, height * 0.5, 4);
 
           const recipe = this.recipe;
-          if (recipe && gameState.kitchen.added.length === recipe.ingredients.length) {
-            showSparkle(this, width / 2, height * 0.5, 180, 120);
-            showToast(this, width / 2, height * 0.36, `${recipe.name} er klar`, '#4A7F33');
-            award(this, 2);
-          }
-          this.refresh();
+          const dishDone = !!recipe && gameState.kitchen.added.length === recipe.ingredients.length;
+          rewardFor(this, 'kitchen', {
+            after: () => {
+              if (dishDone && recipe) {
+                showSparkle(this, width / 2, height * 0.5, 180, 120);
+                showToast(this, width / 2, height * 0.36, `${recipe.name} er klar`, '#4A7F33');
+                award(this, 2);
+              }
+              this.refresh();
+            },
+          });
         },
       });
     });

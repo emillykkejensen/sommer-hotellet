@@ -1,3 +1,4 @@
+import { Level } from '../tasks/types';
 export type Chore = 'bedMade' | 'curtainsOpen' | 'flowersPlaced' | 'vacuumed' | 'towelsFolded';
 
 export interface GuestData {
@@ -34,8 +35,28 @@ export interface GardenState {
   apples: boolean[];
 }
 
+/** 'leg' is the free-play sandbox; 'laer' gates the stars behind a task. */
+export type Mode = 'leg' | 'laer';
+
+export interface SkillProgress {
+  seen: number;
+  correct: number;
+  /** Consecutive right answers; three promotes a level. */
+  streak: number;
+  /** Consecutive wrong answers; two demotes a level. */
+  missed: number;
+  level: Level;
+}
+
+export interface Settings {
+  mode: Mode;
+  matematik: boolean;
+  dansk: boolean;
+  speak: boolean;
+}
+
 const SAVE_KEY = 'sommer-hotellet-save';
-const SAVE_VERSION = 2;
+const SAVE_VERSION = 3;
 
 export const ROOM_COUNT = 3;
 export const LOUNGER_COUNT = 4;
@@ -64,6 +85,10 @@ class GameState {
   pool: PoolState = this.freshPool();
   garden: GardenState = this.freshGarden();
   nextGuestId = 0;
+  /** Shop items the child has bought, by item id. */
+  owned: string[] = [];
+  settings: Settings = this.freshSettings();
+  skills: Record<string, SkillProgress> = {};
 
   constructor() {
     this.rooms = this.freshRooms();
@@ -97,6 +122,93 @@ class GameState {
       sandcastle: 0,
       apples: Array(APPLE_COUNT).fill(false),
     };
+  }
+
+  private freshSettings(): Settings {
+    return { mode: 'leg', matematik: true, dansk: true, speak: true };
+  }
+
+  // ---------- shop ----------
+
+  owns(itemId: string): boolean {
+    return this.owned.includes(itemId);
+  }
+
+  canAfford(cost: number): boolean {
+    return this.stars >= cost;
+  }
+
+  /** Spends the stars and records the purchase. False if unaffordable or already owned. */
+  buy(itemId: string, cost: number): boolean {
+    if (this.owns(itemId) || this.stars < cost) return false;
+    this.stars -= cost;
+    this.owned.push(itemId);
+    this.save();
+    return true;
+  }
+
+  // ---------- learning ----------
+
+  get isLearning(): boolean {
+    return this.settings.mode === 'laer';
+  }
+
+  setMode(mode: Mode): void {
+    this.settings.mode = mode;
+    this.save();
+  }
+
+  toggleSetting(key: 'matematik' | 'dansk' | 'speak'): void {
+    // Never leave both subjects off — there would be nothing to ask.
+    if (key !== 'speak' && this.settings[key]) {
+      const other = key === 'matematik' ? 'dansk' : 'matematik';
+      if (!this.settings[other]) return;
+    }
+    this.settings[key] = !this.settings[key];
+    this.save();
+  }
+
+  progressFor(skill: string): SkillProgress {
+    if (!this.skills[skill]) {
+      this.skills[skill] = { seen: 0, correct: 0, streak: 0, missed: 0, level: 1 };
+    }
+    return this.skills[skill];
+  }
+
+  /**
+   * Records an attempt and moves the level.
+   *
+   * Three right in a row promotes, two wrong in a row demotes. The level is never shown
+   * to the child; it only decides which factory the next task comes from.
+   */
+  recordAttempt(skill: string, correct: boolean): void {
+    const p = this.progressFor(skill);
+    p.seen++;
+    if (correct) {
+      p.correct++;
+      p.streak++;
+      p.missed = 0;
+      if (p.streak >= 3 && p.level < 3) {
+        p.level = (p.level + 1) as Level;
+        p.streak = 0;
+      }
+    } else {
+      p.streak = 0;
+      p.missed++;
+      if (p.missed >= 2 && p.level > 1) {
+        p.level = (p.level - 1) as Level;
+        p.missed = 0;
+      }
+    }
+    this.save();
+  }
+
+  /** Skills practised at least once, most-practised first — for the grown-up screen. */
+  practised(): { skill: string; progress: SkillProgress }[] {
+    return Object.entries(this.skills)
+      .filter(([, p]) => p.seen > 0)
+      .map(([skill, progress]) => ({ skill, progress }))
+      .sort((a, b) => b.progress.seen - a.progress.seen);
   }
 
   // ---------- stars ----------
@@ -257,6 +369,9 @@ class GameState {
     this.pool = this.freshPool();
     this.garden = this.freshGarden();
     this.nextGuestId = 0;
+    this.owned = [];
+    this.settings = this.freshSettings();
+    this.skills = {};
     try {
       localStorage.removeItem(SAVE_KEY);
     } catch {
@@ -275,6 +390,9 @@ class GameState {
         pool: this.pool,
         garden: this.garden,
         nextGuestId: this.nextGuestId,
+        owned: this.owned,
+        settings: this.settings,
+        skills: this.skills,
       }));
     } catch {
       // private browsing or a full quota — the game still plays, it just will not persist
@@ -307,6 +425,9 @@ class GameState {
     this.stars = (data.stars as number) ?? 0;
     this.guests = (data.guests as GuestData[]) ?? [];
     this.nextGuestId = (data.nextGuestId as number) ?? 0;
+    this.owned = Array.isArray(data.owned) ? (data.owned as string[]) : [];
+    this.settings = { ...this.freshSettings(), ...(data.settings as Settings | undefined) };
+    this.skills = (data.skills as Record<string, SkillProgress>) ?? {};
     this.rooms = rooms?.length === ROOM_COUNT ? rooms : this.freshRooms();
     this.kitchen = { ...this.freshKitchen(), ...kitchen };
     this.pool = pool?.towels?.length === LOUNGER_COUNT ? pool : this.freshPool();

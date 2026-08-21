@@ -3,7 +3,9 @@ import { COLORS } from '../config';
 import { APPLE_COUNT, FLOWER_COUNT, gameState, SANDCASTLE_STAGES } from '../state/GameState';
 import { showHearts, showSparkle, showStarBurst, showToast } from '../objects/FeedbackEffects';
 import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
-import { caption, drawCloud, drawFlower, drawHead, drawSun, drawTree, gradientBand, shadow, tappable } from '../helpers/Draw';
+import { rewardFor } from '../helpers/Reward';
+import { placeDecorations } from './ShopScene';
+import { caption, drawCloud, drawFlower, drawHead, drawPerson, drawSun, drawTree, gradientBand, shadow, tappable } from '../helpers/Draw';
 import { reduceMotion } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
 
@@ -55,6 +57,7 @@ export class GardenScene extends BaseScene {
   protected buildDynamic(): void {
     const { width, height } = this.scale;
 
+    placeDecorations(this, 'garden', this.dynamic);
     this.buildFlowerBed(190, height * 0.6);
     this.buildWateringCan(190, height * 0.86);
     this.buildSandbox(width * 0.5, height * 0.78);
@@ -146,15 +149,19 @@ export class GardenScene extends BaseScene {
         });
       }
 
-      award(this);
+      const bedDone = gameState.garden.flowers.every(Boolean);
       this.time.delayedCall(320, () => {
         showStarBurst(this, fx, fy - 20);
-        if (gameState.garden.flowers.every(Boolean)) {
-          showSparkle(this, 190, fy, 220, 90);
-          showToast(this, 190, fy - 70, 'Hele bedet blomstrer', '#4A7F33');
-          award(this, 2);
-        }
-        this.refresh();
+        rewardFor(this, 'garden', {
+          after: () => {
+            if (bedDone) {
+              showSparkle(this, 190, fy, 220, 90);
+              showToast(this, 190, fy - 70, 'Hele bedet blomstrer', '#4A7F33');
+              award(this, 2);
+            }
+            this.refresh();
+          },
+        });
       });
     });
   }
@@ -225,16 +232,20 @@ export class GardenScene extends BaseScene {
 
     tappable(this, c, 156, 72, () => {
       if (!gameState.buildSandcastle()) return;
-      award(this);
       showStarBurst(this, x, y - 22);
 
-      if (gameState.garden.sandcastle >= SANDCASTLE_STAGES) {
-        showSparkle(this, x, y - 40, 120, 110);
-        showHearts(this, x, y - 60);
-        showToast(this, x, y - 96, 'Sikke et slot!', '#4A7F33');
-        award(this, 2);
-      }
-      this.refresh();
+      const castleDone = gameState.garden.sandcastle >= SANDCASTLE_STAGES;
+      rewardFor(this, 'garden', {
+        after: () => {
+          if (castleDone) {
+            showSparkle(this, x, y - 40, 120, 110);
+            showHearts(this, x, y - 60);
+            showToast(this, x, y - 96, 'Sikke et slot!', '#4A7F33');
+            award(this, 2);
+          }
+          this.refresh();
+        },
+      });
     });
   }
 
@@ -412,8 +423,9 @@ export class GardenScene extends BaseScene {
     const { height } = this.scale;
     const guests = gameState.getCheckedInGuests().slice(0, 2);
     guests.forEach((guest, i) => {
-      const c = this.add.container(330 + i * 84, height * 0.52);
-      c.add(drawHead(this, 0, 0, guest.color, 0.85));
+      // standing figures, not the head-and-shoulders crop used behind tables and water
+      const c = this.add.container(322 + i * 88, height * 0.56);
+      c.add(drawPerson(this, 0, 0, guest.color, 0.78));
       this.dyn(c);
       this.tweens.add({
         targets: c,

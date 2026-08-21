@@ -3,6 +3,8 @@ import { COLORS } from '../config';
 import { gameState, LOUNGER_COUNT } from '../state/GameState';
 import { showHearts, showSparkle, showSplash, showStarBurst, showToast } from '../objects/FeedbackEffects';
 import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
+import { rewardFor } from '../helpers/Reward';
+import { placeDecorations } from './ShopScene';
 import { caption, drawHead, drawSun, gradientBand, shadow, tappable } from '../helpers/Draw';
 import { BaseScene } from './BaseScene';
 
@@ -44,6 +46,7 @@ export class PoolScene extends BaseScene {
   protected buildDynamic(): void {
     const { width, height } = this.scale;
 
+    placeDecorations(this, 'pool', this.dynamic);
     this.buildLoungers();
     this.buildSlide(width - 198, height * 0.42);
     this.buildDrinkBar(268, height * 0.9);
@@ -151,15 +154,19 @@ export class PoolScene extends BaseScene {
 
       tappable(this, c, 76, 54, () => {
         if (!gameState.layTowel(i)) return;
-        award(this);
         showStarBurst(this, spot.x, spot.y - 6);
 
-        if (gameState.pool.towels.every(Boolean)) {
-          showSparkle(this, width / 2, height * 0.55, 300, 140);
-          showToast(this, width / 2, height * 0.3, 'Alle solstole er klar', '#4A7F33');
-          award(this, 2);
-        }
-        this.refresh();
+        const allDone = gameState.pool.towels.every(Boolean);
+        rewardFor(this, 'pool', {
+          after: () => {
+            if (allDone) {
+              showSparkle(this, width / 2, height * 0.55, 300, 140);
+              showToast(this, width / 2, height * 0.3, 'Alle solstole er klar', '#4A7F33');
+              award(this, 2);
+            }
+            this.refresh();
+          },
+        });
       });
     });
   }

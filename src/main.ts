@@ -8,6 +8,9 @@ import { RoomScene } from './scenes/RoomScene';
 import { KitchenScene } from './scenes/KitchenScene';
 import { PoolScene } from './scenes/PoolScene';
 import { GardenScene } from './scenes/GardenScene';
+import { ShopScene } from './scenes/ShopScene';
+import { SettingsScene } from './scenes/SettingsScene';
+import { TaskOverlayScene } from './scenes/TaskOverlayScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -29,6 +32,9 @@ const config: Phaser.Types.Core.GameConfig = {
     KitchenScene,
     PoolScene,
     GardenScene,
+    ShopScene,
+    SettingsScene,
+    TaskOverlayScene,
   ],
 };
 

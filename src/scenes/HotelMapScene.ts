@@ -1,9 +1,11 @@
 import Phaser from 'phaser';
-import { COLORS, DEPTH, FONT, SIZE, text } from '../config';
+import { COLORS, DEPTH, FONT, INK_SOFT, SIZE, text } from '../config';
 import { drawCloud, drawFlower, drawSun, drawTree, gradientBand, shadow } from '../helpers/Draw';
 import { addSceneTitle, addStarCounter } from '../ui/Chrome';
 import { dur, press, reduceMotion, transition } from '../helpers/Motion';
 import { gameState } from '../state/GameState';
+import { SHOP_ITEMS } from '../state/Shop';
+import { tappable } from '../helpers/Draw';
 
 interface Area {
   label: string;
@@ -58,6 +60,56 @@ export class HotelMapScene extends Phaser.Scene {
     addSceneTitle(this, 'Sommer Hotellet', '#B9584A');
     addStarCounter(this);
     this.addStatusStrip();
+    this.addShopButton();
+    this.addSettingsButton();
+  }
+
+  /** Entry to the star shop, sitting under the counter it spends from. */
+  private addShopButton(): void {
+    const x = this.scale.width - 74;
+    const c = this.add.container(x, 84).setDepth(DEPTH.chrome);
+
+    const w = 116;
+    const h = 34;
+    const g = this.add.graphics();
+    shadow(g, -w / 2, -h / 2, w, h, h / 2, 2, 0.16);
+    g.fillStyle(COLORS.sunDeep);
+    g.fillRoundedRect(-w / 2, -h / 2, w, h, h / 2);
+    g.fillStyle(COLORS.white, 0.22);
+    g.fillRoundedRect(-w / 2 + 3, -h / 2 + 3, w - 6, h * 0.42, h / 2);
+    c.add(g);
+    c.add(this.add.text(0, 0, 'Butik', text(SIZE.label, '#FFFFFF', 'bold')).setOrigin(0.5));
+
+    const unbought = SHOP_ITEMS.filter(i => !gameState.owns(i.id) && gameState.canAfford(i.cost));
+    if (unbought.length > 0) {
+      const dot = this.add.circle(w / 2 - 9, -h / 2 + 7, 6, COLORS.red);
+      dot.setStrokeStyle(2, COLORS.white);
+      c.add(dot);
+      this.tweens.add({ targets: dot, scale: 1.25, duration: 700, yoyo: true, repeat: -1 });
+    }
+
+    tappable(this, c, w, h, () => transition(this, 'ShopScene'));
+  }
+
+  /** Small, quiet, and out of a child's way. */
+  private addSettingsButton(): void {
+    const c = this.add.container(52, 84).setDepth(DEPTH.chrome);
+
+    const g = this.add.graphics();
+    shadow(g, -34, -17, 68, 34, 17, 2, 0.14);
+    g.fillStyle(COLORS.white, 0.9);
+    g.fillRoundedRect(-34, -17, 68, 34, 17);
+    c.add(g);
+    c.add(this.add.text(0, 0, gameState.isLearning ? 'Lær' : 'Voksne',
+      text(SIZE.label, INK_SOFT, 'bold')).setOrigin(0.5));
+
+    if (gameState.isLearning) {
+      const pip = this.add.circle(26, -11, 5, COLORS.green);
+      pip.setStrokeStyle(1.5, COLORS.white);
+      c.add(pip);
+    }
+
+    tappable(this, c, 68, 34, () => transition(this, 'SettingsScene'));
   }
 
   /** A one-line read on the hotel, so the map is not just five buttons. */

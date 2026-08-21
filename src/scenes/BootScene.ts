@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS, INK_SOFT, SIZE, text } from '../config';
+import { primeVoices } from '../helpers/Speech';
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -9,6 +10,9 @@ export class BootScene extends Phaser.Scene {
   create(): void {
     const { width, height } = this.scale;
     this.cameras.main.setBackgroundColor(COLORS.skyLight);
+
+    // da-DK voices load asynchronously in some browsers
+    primeVoices();
 
     const label = this.add.text(width / 2, height / 2 + 46, 'Indlæser...', text(SIZE.body, INK_SOFT))
       .setOrigin(0.5);

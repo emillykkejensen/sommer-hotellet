@@ -70,15 +70,18 @@ export class ShopScene extends BaseScene {
 
     this.buildTabs(width / 2, 140);
 
+    // Both grids size themselves from the catalogue, so adding an item reflows the shelf
+    // rather than pushing a card off the bottom of the screen.
     if (this.tab === 'ting') {
-      const cols = 5;
-      const cardW = 168;
-      const cardH = 158;
-      const startX = width / 2 - ((cols - 1) * (cardW + 12)) / 2;
+      const cols = Math.ceil(SHOP_ITEMS.length / 2);
+      const cardW = Math.min(168, Math.floor((width - 40) / cols) - 8);
+      const cardH = 146;
+      const stepX = cardW + 8;
+      const startX = width / 2 - ((cols - 1) * stepX) / 2;
       SHOP_ITEMS.forEach((item, i) => {
         const col = i % cols;
         const row = Math.floor(i / cols);
-        this.buildCard(item, startX + col * (cardW + 12), 254 + row * (cardH + 16), cardW, cardH);
+        this.buildCard(item, startX + col * stepX, 262 + row * (cardH + 16), cardW, cardH);
       });
       this.dyn(this.add.text(width / 2, height - 20,
         'Tingene dukker op i rummene, når du har købt dem',
@@ -86,11 +89,15 @@ export class ShopScene extends BaseScene {
       return;
     }
 
-    const cardW = 224;
-    const cardH = 210;
-    const startX = width / 2 - ((SHOP_UPGRADES.length - 1) * (cardW + 20)) / 2;
+    const upgradeCols = Math.ceil(SHOP_UPGRADES.length / 2);
+    const cardW = 216;
+    const cardH = 188;
+    const stepX = cardW + 16;
+    const startX = width / 2 - ((upgradeCols - 1) * stepX) / 2;
     SHOP_UPGRADES.forEach((upgrade, i) => {
-      this.buildUpgradeCard(upgrade, startX + i * (cardW + 20), 348, cardW, cardH);
+      const col = i % upgradeCols;
+      const row = Math.floor(i / upgradeCols);
+      this.buildUpgradeCard(upgrade, startX + col * stepX, 250 + row * (cardH + 18), cardW, cardH);
     });
     this.dyn(this.add.text(width / 2, height - 20,
       'Temaer vælges inde på værelserne',
@@ -156,11 +163,11 @@ export class ShopScene extends BaseScene {
     c.add(g);
 
     const preview = upgrade.draw(this);
-    preview.setPosition(0, -28);
+    preview.setScale(0.86).setPosition(0, -26);
     c.add(preview);
 
-    c.add(this.add.text(0, h / 2 - 66, upgrade.name, text(SIZE.body, INK, 'bold')).setOrigin(0.5));
-    c.add(this.add.text(0, h / 2 - 44, upgrade.blurb,
+    c.add(this.add.text(0, h / 2 - 62, upgrade.name, text(SIZE.body, INK, 'bold')).setOrigin(0.5));
+    c.add(this.add.text(0, h / 2 - 41, upgrade.blurb,
       { ...text(SIZE.tiny, INK_SOFT, 'semibold'), wordWrap: { width: w - 40 }, align: 'center' })
       .setOrigin(0.5));
 
@@ -220,33 +227,36 @@ export class ShopScene extends BaseScene {
     c.add(g);
 
     // area label
-    c.add(this.add.text(0, -h / 2 + 18, AREA_LABEL[item.area],
+    c.add(this.add.text(0, -h / 2 + 15, AREA_LABEL[item.area],
       text(SIZE.tiny, INK_SOFT, 'bold')).setOrigin(0.5));
 
-    // the item itself, drawn small
+    // the item itself, drawn small — scaled to whatever width the shelf gave the card
     const preview = item.draw(this);
-    preview.setScale(0.72).setPosition(0, -4);
+    preview.setScale(Math.min(0.62, (w - 30) / 150)).setPosition(0, -8);
     c.add(preview);
 
-    c.add(this.add.text(0, h / 2 - 46, item.name, text(SIZE.label, INK, 'bold')).setOrigin(0.5));
+    const label = this.add.text(0, h / 2 - 44, item.name, text(SIZE.label, INK, 'bold'))
+      .setOrigin(0.5);
+    if (label.width > w - 12) label.setFontSize(SIZE.tiny);
+    c.add(label);
 
     if (isOwned) {
       const badge = this.add.graphics();
       badge.fillStyle(COLORS.green);
-      badge.fillRoundedRect(-38, h / 2 - 32, 76, 22, 11);
+      badge.fillRoundedRect(-34, h / 2 - 30, 68, 21, 10.5);
       c.add(badge);
-      c.add(this.add.text(0, h / 2 - 21, 'Købt', text(SIZE.tiny, '#FFFFFF', 'bold')).setOrigin(0.5));
+      c.add(this.add.text(0, h / 2 - 20, 'Købt', text(SIZE.tiny, '#FFFFFF', 'bold')).setOrigin(0.5));
       this.dyn(c);
       return;
     }
 
     // price tag
-    const tag = this.add.container(0, h / 2 - 20);
+    const tag = this.add.container(0, h / 2 - 19);
     const tg = this.add.graphics();
     tg.fillStyle(affordable ? COLORS.sun : COLORS.stone);
-    tg.fillRoundedRect(-40, -13, 80, 26, 13);
+    tg.fillRoundedRect(-36, -12, 72, 24, 12);
     tag.add(tg);
-    const star = this.add.star(-20, 0, 5, 4.5, 9, affordable ? COLORS.white : COLORS.stoneDeep);
+    const star = this.add.star(-18, 0, 5, 4, 8, affordable ? COLORS.white : COLORS.stoneDeep);
     tag.add(star);
     tag.add(this.add.text(7, 0, `${item.cost}`,
       text(SIZE.body, affordable ? '#5A4E42' : '#8A7E70', 'bold')).setOrigin(0.5));

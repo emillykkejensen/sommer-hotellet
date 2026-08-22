@@ -299,18 +299,165 @@ function gardenBench(scene: Phaser.Scene): Phaser.GameObjects.Container {
   return c;
 }
 
+function wallClock(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+
+  shadow(g, -26, -26, 52, 52, 26, 3, 0.16);
+  g.fillStyle(COLORS.woodDeep);
+  g.fillCircle(0, 0, 26);
+  g.fillStyle(COLORS.white);
+  g.fillCircle(0, 0, 21);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2 - Math.PI / 2;
+    g.fillStyle(COLORS.ink, i % 3 === 0 ? 0.7 : 0.28);
+    g.fillCircle(Math.cos(a) * 16, Math.sin(a) * 16, i % 3 === 0 ? 1.8 : 1.1);
+  }
+  g.lineStyle(3, COLORS.ink, 0.8);
+  g.lineBetween(0, 0, 0, -10);
+  g.lineStyle(2.2, COLORS.roof, 0.9);
+  g.lineBetween(0, 0, 8, 6);
+  g.fillStyle(COLORS.ink);
+  g.fillCircle(0, 0, 2.4);
+
+  c.add(g);
+  return c;
+}
+
+function bedsideLamp(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+
+  shadow(g, -18, 26, 36, 8, 4, 3, 0.14);
+  g.fillStyle(COLORS.woodDeep);
+  g.fillRoundedRect(-24, 14, 48, 16, 4);
+  g.fillStyle(COLORS.wood);
+  g.fillRoundedRect(-24, 12, 48, 6, 3);
+  g.fillStyle(COLORS.stoneDeep);
+  g.fillRoundedRect(-2.5, -6, 5, 20, 2);
+  g.fillStyle(0xF2D08A);
+  g.fillTriangle(-18, -6, 18, -6, 11, -30);
+  g.fillTriangle(-18, -6, 11, -30, -11, -30);
+  g.fillStyle(COLORS.sun, 0.35);
+  g.fillEllipse(0, -4, 36, 8);
+
+  c.add(g);
+  return c;
+}
+
+function cakeStand(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+
+  shadow(g, -22, 20, 44, 8, 4, 3, 0.14);
+  g.fillStyle(COLORS.stone);
+  g.fillEllipse(0, 22, 40, 9);
+  g.fillRoundedRect(-3, 2, 6, 20, 3);
+  g.fillStyle(COLORS.white);
+  g.fillEllipse(0, 2, 60, 12);
+  g.fillStyle(COLORS.stone, 0.5);
+  g.fillEllipse(0, 4, 60, 9);
+
+  // a cake with a slice taken out
+  g.fillStyle(0xE8A9B8);
+  g.fillEllipse(0, -10, 44, 20);
+  g.fillRoundedRect(-22, -18, 44, 10, 3);
+  g.fillStyle(0xF6C9D3);
+  g.fillEllipse(0, -19, 44, 12);
+  g.fillStyle(0xC0455C);
+  g.fillCircle(-9, -21, 3.4);
+  g.fillCircle(4, -19, 3.4);
+  g.fillCircle(13, -22, 3);
+
+  c.add(g);
+  return c;
+}
+
+function beachBall(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+
+  shadow(g, -22, 18, 44, 9, 5, 3, 0.14);
+  g.fillStyle(COLORS.white);
+  g.fillCircle(0, 0, 26);
+
+  // alternating panels
+  const panels = [COLORS.red, COLORS.sun, COLORS.water, COLORS.green];
+  panels.forEach((tint, i) => {
+    const from = (i / panels.length) * Math.PI * 2 - Math.PI / 2;
+    const to = ((i + 0.5) / panels.length) * Math.PI * 2 - Math.PI / 2;
+    g.fillStyle(tint, 0.92);
+    g.beginPath();
+    g.moveTo(0, 0);
+    g.arc(0, 0, 26, from, to, false);
+    g.closePath();
+    g.fillPath();
+  });
+  g.fillStyle(COLORS.white);
+  g.fillCircle(0, 0, 6);
+  g.fillStyle(COLORS.white, 0.45);
+  g.fillEllipse(-9, -12, 12, 7);
+
+  c.add(g);
+  scene.tweens.add({ targets: c, y: '-=4', duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+  return c;
+}
+
+function birdHouse(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+
+  g.fillStyle(COLORS.woodDeep);
+  g.fillRoundedRect(-3, 6, 6, 44, 3);
+  g.fillStyle(COLORS.shadow, 0.1);
+  g.fillEllipse(0, 50, 26, 7);
+
+  shadow(g, -24, -30, 48, 40, 5, 3, 0.16);
+  g.fillStyle(COLORS.wood);
+  g.fillRoundedRect(-24, -30, 48, 40, 4);
+  g.fillStyle(COLORS.woodDeep);
+  g.fillRoundedRect(14, -30, 10, 40, { tl: 0, tr: 4, bl: 0, br: 4 });
+  g.fillStyle(COLORS.roofDeep);
+  g.fillTriangle(-30, -30, 30, -30, 0, -54);
+  g.fillStyle(COLORS.roof);
+  g.fillTriangle(-30, -30, 22, -30, -4, -50);
+  g.fillStyle(0x6B4A2E);
+  g.fillCircle(-2, -12, 9);
+  g.fillStyle(COLORS.woodDeep);
+  g.fillRoundedRect(-4, -2, 4, 10, 2);
+
+  // a small bird on the perch
+  g.fillStyle(0xE8A863);
+  g.fillEllipse(14, 2, 15, 11);
+  g.fillCircle(19, -3, 5.5);
+  g.fillStyle(COLORS.ink);
+  g.fillCircle(21, -4, 1.3);
+  g.fillStyle(COLORS.sunDeep);
+  g.fillTriangle(24, -4, 24, -1, 29, -3);
+
+  c.add(g);
+  return c;
+}
+
 /* ---------------------------------------------------------------- catalogue --- */
 
 export const SHOP_ITEMS: ShopItem[] = [
   { id: 'cat',      name: 'Hotelkatten',   cost: 6,  area: 'lobby',   spot: { x: 0.33, y: 0.59 }, draw: cat },
   { id: 'lamp',     name: 'Gulvlampe',     cost: 10, area: 'lobby',   spot: { x: 0.82, y: 0.68 }, draw: floorLamp },
-  { id: 'teddy',    name: 'Bamse',         cost: 8,  area: 'rooms',   spot: { x: 0.29, y: 0.78 }, draw: teddy },
+  { id: 'teddy',    name: 'Bamse',         cost: 8,  area: 'rooms',   spot: { x: 0.29, y: 0.82 }, draw: teddy },
   { id: 'picture',  name: 'Billede',       cost: 12, area: 'rooms',   spot: { x: 0.5,  y: 0.28 }, draw: wallPicture },
   { id: 'herbs',    name: 'Krydderurter',  cost: 9,  area: 'kitchen', spot: { x: 0.16, y: 0.52 }, draw: herbPots },
   { id: 'parasol',  name: 'Parasol',       cost: 14, area: 'pool',    spot: { x: 0.2,  y: 0.42 }, draw: parasol },
   { id: 'flamingo', name: 'Flamingoring',  cost: 18, area: 'pool',    spot: { x: 0.62, y: 0.56 }, draw: flamingoRing },
   { id: 'birdbath', name: 'Fuglebad',      cost: 11, area: 'garden',  spot: { x: 0.72, y: 0.87 }, draw: birdBath },
   { id: 'bench',    name: 'Havebænk',      cost: 16, area: 'garden',  spot: { x: 0.35, y: 0.9  }, draw: gardenBench },
+
+  // second wave, priced above the first so there is still something to save for
+  { id: 'clock',    name: 'Vægur',         cost: 20, area: 'lobby',   spot: { x: 0.2,  y: 0.24 }, draw: wallClock },
+  { id: 'lamp2',    name: 'Natlampe',      cost: 22, area: 'rooms',   spot: { x: 0.62, y: 0.78 }, draw: bedsideLamp },
+  { id: 'cakestand', name: 'Kagefad',      cost: 24, area: 'kitchen', spot: { x: 0.86, y: 0.7  }, draw: cakeStand },
+  { id: 'ball',     name: 'Badebold',      cost: 21, area: 'pool',    spot: { x: 0.38, y: 0.52 }, draw: beachBall },
+  { id: 'birdhouse', name: 'Fuglehus',     cost: 26, area: 'garden',  spot: { x: 0.66, y: 0.78 }, draw: birdHouse },
 ];
 
 export function itemsFor(area: Area): ShopItem[] {
@@ -380,6 +527,40 @@ function themePreview(themeIndex: number, wall: number, accent: number, duvet: n
   };
 }
 
+function secondFloorPreview(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+
+  shadow(g, -44, -34, 88, 68, 6, 4, 0.16);
+  g.fillStyle(COLORS.wall);
+  g.fillRoundedRect(-44, -34, 88, 68, 6);
+  g.fillStyle(COLORS.wallDeep, 0.45);
+  g.fillRect(-44, -2, 88, 4);
+
+  // the new upper storey, picked out in the accent colour
+  g.fillStyle(COLORS.roof, 0.16);
+  g.fillRoundedRect(-44, -34, 88, 32, { tl: 6, tr: 6, bl: 0, br: 0 });
+
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 3; col++) {
+      const wx = -28 + col * 28;
+      const wy = -20 + row * 30;
+      g.fillStyle(COLORS.window);
+      g.fillRoundedRect(wx - 9, wy - 8, 18, 16, 3);
+      g.lineStyle(2, row === 0 ? COLORS.roof : COLORS.wallDeep);
+      g.strokeRoundedRect(wx - 9, wy - 8, 18, 16, 3);
+    }
+  }
+
+  g.fillStyle(COLORS.roofDeep);
+  g.fillTriangle(-52, -34, 52, -34, 0, -58);
+  g.fillStyle(COLORS.roof);
+  g.fillTriangle(-52, -34, 40, -34, -6, -54);
+
+  c.add(g);
+  return c;
+}
+
 export const SHOP_UPGRADES: ShopUpgrade[] = [
   {
     id: 'theme-desert',
@@ -402,10 +583,33 @@ export const SHOP_UPGRADES: ShopUpgrade[] = [
     cost: 32,
     draw: fourthRoomPreview,
   },
+  {
+    id: 'theme-mermaid',
+    name: 'Havfrue-tema',
+    blurb: 'Et nyt look til værelserne',
+    cost: 30,
+    draw: themePreview(5, 0xDDF3F1, 0x4FB3A6, 0xA6DED6),
+  },
+  {
+    id: 'theme-sunset',
+    name: 'Solnedgang-tema',
+    blurb: 'Et nyt look til værelserne',
+    cost: 34,
+    draw: themePreview(6, 0xFCE8DE, 0xE8795F, 0xF7BFA3),
+  },
+  {
+    id: 'floor2',
+    name: 'Første sal',
+    blurb: 'To værelser mere ovenpå',
+    cost: 48,
+    draw: secondFloorPreview,
+  },
 ];
 
-/** Which theme index each theme upgrade unlocks. */
+/** Which theme index each theme upgrade unlocks. Indexes match ROOM_THEMES. */
 export const THEME_UNLOCKS: { id: string; theme: number }[] = [
   { id: 'theme-desert', theme: 3 },
   { id: 'theme-night', theme: 4 },
+  { id: 'theme-mermaid', theme: 5 },
+  { id: 'theme-sunset', theme: 6 },
 ];

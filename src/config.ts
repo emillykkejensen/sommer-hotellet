@@ -106,6 +106,8 @@ export const ROOM_THEMES = [
   { name: 'Skoven', wall: COLORS.wallGreen, accent: COLORS.green, duvet: 0xB4DBA5, cushion: 0x7CBE6A },
   { name: 'Ørkenen', wall: 0xFBEFD9, accent: COLORS.orange, duvet: 0xF3CE93, cushion: 0xE8A863 },
   { name: 'Stjernenat', wall: 0xE4E3F5, accent: COLORS.purple, duvet: 0xC6BDE8, cushion: 0x9B8ACC },
+  { name: 'Havfruen', wall: 0xDDF3F1, accent: 0x4FB3A6, duvet: 0xA6DED6, cushion: 0x4FB3A6 },
+  { name: 'Solnedgang', wall: 0xFCE8DE, accent: 0xE8795F, duvet: 0xF7BFA3, cushion: 0xE8795F },
 ];
 
 /** Shared depths so effects always draw above a refreshed layer. */

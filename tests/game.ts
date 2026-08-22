@@ -420,17 +420,23 @@ export class Game {
 
   /* ------------------------------------------------------------ helpers --- */
 
-  /** Finds a shop card by the item name printed on it. Works on either shelf. */
-  async shopCard(name: string, cardWidth = 168): Promise<{ x: number; y: number }> {
-    const card = await this.page.evaluate(([itemName, width]) => {
+  /**
+   * Finds a shop card by the name printed on it, on whichever shelf is showing.
+   *
+   * Matching on the label rather than the card size: an earlier version guessed the shelf
+   * from hit-area widths and picked the back button, which happens to be about as wide as
+   * a decoration card.
+   */
+  async shopCard(name: string): Promise<{ x: number; y: number }> {
+    const card = await this.page.evaluate((itemName) => {
       const scene = window.__game.scene.getScene('ShopScene') as any;
-      const found: any[] = [];
+      const found: { x: number; y: number }[] = [];
       const walk = (objs: any[], ox: number, oy: number) => {
         for (const o of objs || []) {
           if (!o) continue;
           const x = ox + (o.x || 0);
           const y = oy + (o.y || 0);
-          if (o.input && o.input.hitArea?.width === width) {
+          if (o.input) {
             const labels = (o.list || [])
               .filter((c: any) => c.type === 'Text')
               .map((c: any) => c.text);
@@ -441,7 +447,7 @@ export class Game {
       };
       walk(scene.children.list, 0, 0);
       return found[0] ?? null;
-    }, [name, cardWidth] as const);
+    }, name);
     if (!card) throw new Error(`shop card not found: ${name}`);
     return card;
   }

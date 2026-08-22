@@ -8,6 +8,7 @@ import { AT, Game } from './game';
  */
 const CONTENT = '/src/tasks/content.ts';
 const TYPES = '/src/tasks/types.ts';
+const FIGURES = '/src/tasks/figures.ts';
 
 /**
  * Generator-level checks over the whole task catalogue.
@@ -200,5 +201,49 @@ test('reading tasks show pictures, not the same word twice', async ({ page }) =>
   const solved = await game.solveTask();
   expect(solved.skill).toBe('ordlæsning');
   expect(solved.template, 'level 1 reads a word and picks the picture').toBe('pick-image');
+  game.expectNoErrors();
+});
+
+test('every drawable noun renders and can be asked for', async ({ page }) => {
+  const game = await Game.open(page);
+
+  const report = await page.evaluate(async ([figuresUrl, contentUrl]) => {
+    const figures: any = await import(/* @vite-ignore */ figuresUrl);
+    const content: any = await import(/* @vite-ignore */ contentUrl);
+    const nouns: string[] = [...figures.DRAWABLE_NOUNS];
+
+    // every noun a reading task can name must have a drawing
+    const scene = window.__game.scene.getScenes(true)[0] as any;
+    const undrawable: string[] = [];
+    for (const noun of nouns) {
+      try {
+        const container = figures.drawFigure(scene, { kind: 'noun', noun });
+        if (!container || container.list.length === 0) undrawable.push(noun);
+        container?.destroy();
+      } catch (e) {
+        undrawable.push(`${noun} (${(e as Error).message})`);
+      }
+    }
+
+    // and the reading factory must only ever name nouns from that list
+    const offList: string[] = [];
+    const reading = content.FACTORIES.filter(
+      (f: any) => f.skill === 'ordlæsning' && f.level === 1
+    );
+    for (const factory of reading) {
+      for (let i = 0; i < 60; i++) {
+        const task = factory.make();
+        for (const option of task.body.options ?? []) {
+          if (option.kind === 'noun' && !nouns.includes(option.noun)) offList.push(option.noun);
+        }
+      }
+    }
+
+    return { nouns, undrawable, offList: [...new Set(offList)] };
+  }, [FIGURES, CONTENT] as const);
+
+  expect(report.undrawable, 'every noun needs a drawing').toEqual([]);
+  expect(report.offList, 'a reading task must not name a noun it cannot draw').toEqual([]);
+  expect(report.nouns.length, 'the reading vocabulary').toBeGreaterThanOrEqual(16);
   game.expectNoErrors();
 });

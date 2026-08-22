@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { AT, Game } from './game';
 
+/** Served by the dev server at runtime, so the specifier goes through a variable. */
+const SHOP = '/src/state/Shop.ts';
+
 /**
  * The star shop and the task layer.
  *
@@ -225,7 +228,7 @@ test('the fourth room upgrade adds a real room everywhere', async ({ page }) => 
   await game.waitForScene('ShopScene');
   await game.tap(AT.shopTabHotel.x, AT.shopTabHotel.y);
 
-  const room4 = await game.shopCard('Fjerde værelse', 224);
+  const room4 = await game.shopCard('Fjerde værelse');
   await game.tap(room4.x, room4.y);
 
   await game.expectSave(s => s.owned, 'the upgrade is recorded').toContain('room4');
@@ -255,7 +258,7 @@ test('a bought theme becomes selectable in the rooms', async ({ page }) => {
   await game.tap(AT.shop.x, AT.shop.y);
   await game.waitForScene('ShopScene');
   await game.tap(AT.shopTabHotel.x, AT.shopTabHotel.y);
-  const desert = await game.shopCard('Ørken-tema', 224);
+  const desert = await game.shopCard('Ørken-tema');
   await game.tap(desert.x, desert.y);
   await game.expectSave(s => s.owned).toContain('theme-desert');
 
@@ -297,5 +300,78 @@ test('an older save without themes or a fourth room still loads', async ({ page 
   const save = await game.save();
   expect(save.rooms).toHaveLength(3);
   expect(save.rooms.map((r: any) => r.theme)).toEqual([0, 1, 2]);
+  game.expectNoErrors();
+});
+
+test('room upgrades stack, so the cheaper one is never wasted', async ({ page }) => {
+  const game = await Game.openWithSave(page, { stars: 100 });
+  await game.start();
+  await game.tap(AT.shop.x, AT.shop.y);
+  await game.waitForScene('ShopScene');
+  await game.tap(AT.shopTabHotel.x, AT.shopTabHotel.y);
+
+  // the second floor adds two rooms to whatever the hotel already has
+  const floor = await game.shopCard('Første sal');
+  await game.tap(floor.x, floor.y);
+  await game.expectSave(s => s.rooms.length, 'three plus two').toBe(5);
+
+  const room4 = await game.shopCard('Fjerde værelse');
+  await game.tap(room4.x, room4.y);
+  await game.expectSave(s => s.rooms.length, 'and one more on top').toBe(6);
+
+  // six is the ceiling
+  await game.expectSave(s => s.stars).toBe(100 - 48 - 32);
+  await game.tap(AT.back.x, AT.back.y);
+  await game.waitForScene('HotelMapScene');
+  await game.enter('rooms');
+  await game.expectScreen('RoomScene', 'six tabs').toContain('Rum 6');
+  await game.leave();
+  await game.enter('lobby');
+  await game.expectScreen('LobbyScene', 'six keys on the board').toContain('6');
+  game.expectNoErrors();
+});
+
+test('every shop entry can be bought and shows as bought', async ({ page }) => {
+  // Twenty purchases plus a sweep of all five scenes; the default budget is for a test
+  // that taps a handful of times.
+  test.slow();
+
+  const game = await Game.openWithSave(page, { stars: 500 });
+  await game.start();
+
+  const catalogue = await page.evaluate(async (shopUrl) => {
+    const mod: any = await import(/* @vite-ignore */ shopUrl);
+    return {
+      things: mod.SHOP_ITEMS.map((i: any) => i.name) as string[],
+      upgrades: mod.SHOP_UPGRADES.map((i: any) => i.name) as string[],
+    };
+  }, SHOP);
+  expect(catalogue.things.length + catalogue.upgrades.length,
+    'the catalogue should be worth saving for').toBeGreaterThanOrEqual(20);
+
+  await game.tap(AT.shop.x, AT.shop.y);
+  await game.waitForScene('ShopScene');
+
+  for (const name of catalogue.things) {
+    const card = await game.shopCard(name);
+    await game.tap(card.x, card.y);
+  }
+  await game.tap(AT.shopTabHotel.x, AT.shopTabHotel.y);
+  for (const name of catalogue.upgrades) {
+    const card = await game.shopCard(name);
+    await game.tap(card.x, card.y);
+  }
+
+  const save = await game.save();
+  expect(save.owned).toHaveLength(catalogue.things.length + catalogue.upgrades.length);
+  await game.expectScreen('ShopScene').toContain('Du har købt alt til hotellet!');
+
+  // and nothing throws while every scene renders its full set of decorations
+  await game.tap(AT.back.x, AT.back.y);
+  await game.waitForScene('HotelMapScene');
+  for (const area of ['lobby', 'rooms', 'kitchen', 'pool', 'garden'] as const) {
+    await game.enter(area);
+    await game.leave();
+  }
   game.expectNoErrors();
 });

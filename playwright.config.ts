@@ -9,8 +9,14 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: process.env.CI ? 'list' : [['list']],
+  // No retries on purpose. This suite drives a canvas, so a retry would paper over
+  // exactly the timing bugs worth knowing about — two CI failures so far were real
+  // nondeterminism in the tests, not infrastructure.
+  retries: 0,
   use: {
     baseURL: 'http://localhost:3000',
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
     viewport: { width: 1200, height: 800 },
     launchOptions: {
       // The sandbox ships Chromium at a fixed path; fall back to Playwright's own.

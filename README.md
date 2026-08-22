@@ -76,6 +76,12 @@ tests/
   tasks.spec.ts          every factory generates an answerable task
 ```
 
+CI runs typecheck, build and the full suite on every push
+(`.github/workflows/ci.yml`), and uploads Playwright traces and screenshots when a test
+fails. There are deliberately **no retries**: this suite drives a canvas, and a retry would
+paper over exactly the timing bugs worth knowing about — both CI failures so far were real
+nondeterminism in the tests, not infrastructure.
+
 ### The layer pattern
 
 Scenes never restart themselves to redraw. `BaseScene` gives every scene three layers:
@@ -173,9 +179,10 @@ Seven interaction templates cover all of it:
 `pick-image` exists because some answers cannot be words without giving themselves away —
 a shape task whose options read "cirkel" and "trekant" tests reading, not shapes. Those
 options are described as `Figure` values and drawn by `tasks/figures.ts`, which also holds
-the eight drawable nouns (`sol`, `hus`, `kat`, `fisk`, `is`, `blomst`, `nøgle`, `kop`) that
-let a reading task show a picture rather than the same word twice. The list is short
-because every entry has to be unmistakable at 128px.
+the sixteen drawable nouns that let a reading task show a picture rather than the same word
+twice: `sol`, `hus`, `kat`, `fisk`, `is`, `blomst`, `nøgle`, `kop`, `bil`, `bog`, `hat`,
+`sok`, `mus`, `tog`, `måne`, `kage`. The list is bounded by what stays unmistakable at
+128px, and a test asserts a reading task can never name a noun with no drawing.
 
 `adjust` covers the thermometer and the clock with one mechanic, because both are the same
 idea: move a number to where it should be. It has no wrong answer — the dial is either
@@ -231,8 +238,20 @@ counts that the sound tests assert on.
 ### Read-aloud
 
 `helpers/Speech.ts` speaks every prompt in Danish via `speechSynthesis`. If no `da-*` voice
-exists it stays silent rather than reading Danish with an English voice. The grown-up
+exists it stays silent rather than reading Danish with an English voice, and the grown-up
 screen hides the toggle when the browser cannot speak at all.
+
+Two details make the difference between usable and irritating:
+
+- **Voice choice.** `da-DK` beats a generic `da`, and a local voice beats a network one — a
+  network voice is usually better but stalls on a slow connection, and a prompt that arrives
+  two seconds late is worse than a flatter one that arrives now.
+- **Pacing.** The prompt is split at sentence punctuation and queued as separate
+  utterances, so "Der kommer 2 voksne og 3 børn. Hvor mange nøgler skal du hente?" reads as
+  two sentences rather than one breathless run. Longer prompts get a slower rate.
+
+This is synthesis, not narration. A recorded voice would be warmer, but that is a few
+hundred audio files to write, record and ship.
 
 ### The shop
 
@@ -249,15 +268,21 @@ function renders the shop preview and the real thing:
 Scenes call `placeDecorations(this, 'garden', this.dynamic)` in their `buildDynamic()`, so
 bought pieces come back on every refresh with no per-scene bookkeeping.
 
-**Hotellet** are upgrades that change the game rather than dress it: two extra room themes
-(22 and 26 stars) and a fourth room (32). They exist because nine decorations is a sink
-with a bottom — once they are all bought, stars pile up again.
+**Hotellet** are upgrades that change the game rather than dress it: four extra room themes
+(22–34 stars), a fourth room (32), and a second floor with two more (48). Together with
+fourteen decorations that is twenty things to save for, priced 6 to 48.
 
-The fourth room means the room count is no longer a constant. `BASE_ROOM_COUNT` is what the
-hotel ships with, `gameState.roomCount` is what it actually has, and both the room tabs and
-the lobby key board size themselves from it. Themes are an index into `ROOM_THEMES` stored
-per room, so **the order of that array is part of the save format** — append, never
-reorder.
+Room capacity is no longer a constant. `BASE_ROOM_COUNT` is what the hotel ships with,
+`MAX_ROOM_COUNT` the ceiling, and `gameState.roomCount` what it actually has; the room tabs
+and the lobby key board size themselves from it. Upgrades **add** capacity rather than
+setting it, so buying the cheap one first is never wasted — a second floor that jumped
+straight to six would have made the fourth-room upgrade pointless.
+
+Themes are an index into `ROOM_THEMES` stored per room, so **the order of that array is part
+of the save format** — append, never reorder.
+
+Both shop grids compute their columns from the catalogue length, so adding an item reflows
+the shelf instead of pushing a card off the bottom of the screen.
 
 `GameState.load()` normalises what it reads (a room without a theme gets one, a save
 predating the upgrade grows if it was bought) and writes the result straight back, so a
@@ -315,11 +340,15 @@ The harness waits for the game to stop moving rather than sleeping a fixed time 
 software WebGL, Phaser's clamped frame delta stretches a 220 ms fade past a second, and a
 fixed wait fires the next click into the old scene.
 
-## Not done yet
+## Known limits
 
-- **The star sink still has a bottom.** Nine decorations plus three upgrades. A third tier
-  (a second floor, staff to hire) would extend it further.
-- **Only eight nouns can be drawn.** Reading tasks pick from those; a wider vocabulary needs
-  more art.
-- **No spoken word audio.** Read-aloud uses the device's Danish voice, which is
-  serviceable but flat compared to a recorded one.
+Not bugs, but worth knowing before picking up the next piece of work.
+
+- **Twenty things to buy, then the sink is full again.** Six rooms is the ceiling
+  (`MAX_ROOM_COUNT`) because the tabs and key board stop fitting beyond that; going further
+  needs a different navigation, not another upgrade.
+- **Sixteen drawable nouns** caps the reading vocabulary. More needs more drawings.
+- **Read-aloud is synthesised**, not recorded. Better voice selection and pacing help, but a
+  real narrator would need audio files.
+- **The suite is slow in software rendering.** Around ten minutes with no GPU; roughly three
+  on CI. `test.slow()` marks the one test that buys the whole catalogue.

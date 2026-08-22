@@ -91,7 +91,7 @@ export class RoomScene extends BaseScene {
 
     // to the right of the room name, so the swatches are not mistaken for another
     // row of progress dots
-    this.buildThemePicker(width - 132, 78);
+    this.buildThemePicker(width - 142, 78);
 
     const specs = this.choreSpecs(theme);
     for (const spec of specs) {
@@ -239,7 +239,7 @@ export class RoomScene extends BaseScene {
     if (unlocked.length <= 3) return;
 
     const current = gameState.rooms[this.currentRoom].theme;
-    const spacing = 34;
+    const spacing = unlocked.length > 5 ? 30 : 34;
 
     unlocked.forEach((themeIndex, i) => {
       const theme = ROOM_THEMES[themeIndex];

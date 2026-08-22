@@ -27,7 +27,10 @@ export function drawFigure(scene: Phaser.Scene, figure: Figure): Phaser.GameObje
  * only tests visual discrimination. The list is deliberately short — every entry has to be
  * drawable and unmistakable at 128px, which rules out most nouns.
  */
-export const DRAWABLE_NOUNS = ['sol', 'hus', 'kat', 'fisk', 'is', 'blomst', 'nøgle', 'kop'] as const;
+export const DRAWABLE_NOUNS = [
+  'sol', 'hus', 'kat', 'fisk', 'is', 'blomst', 'nøgle', 'kop',
+  'bil', 'bog', 'hat', 'sok', 'mus', 'tog', 'måne', 'kage',
+] as const;
 export type DrawableNoun = (typeof DRAWABLE_NOUNS)[number];
 
 function drawNoun(scene: Phaser.Scene, noun: DrawableNoun): Phaser.GameObjects.Container {
@@ -40,7 +43,180 @@ function drawNoun(scene: Phaser.Scene, noun: DrawableNoun): Phaser.GameObjects.C
     case 'kat': return drawCatFace(scene);
     case 'fisk': return drawFish(scene);
     case 'is': return drawIceCream(scene);
+    case 'bil': return drawCar(scene);
+    case 'bog': return drawBook(scene);
+    case 'hat': return drawHat(scene);
+    case 'sok': return drawSock(scene);
+    case 'mus': return drawMouse(scene);
+    case 'tog': return drawTrain(scene);
+    case 'måne': return drawMoon(scene);
+    case 'kage': return drawCake(scene, 1, 1);
   }
+}
+
+function drawCar(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+  g.fillStyle(COLORS.shadow, 0.12);
+  g.fillEllipse(0, 26, 74, 9);
+  g.fillStyle(COLORS.red);
+  g.fillRoundedRect(-38, -2, 76, 22, 8);
+  g.fillRoundedRect(-24, -22, 44, 22, 8);
+  g.fillStyle(COLORS.window);
+  g.fillRoundedRect(-19, -18, 16, 14, 4);
+  g.fillRoundedRect(0, -18, 15, 14, 4);
+  g.fillStyle(COLORS.roofDeep);
+  g.fillRoundedRect(-38, 8, 76, 8, 4);
+  g.fillStyle(COLORS.ink, 0.85);
+  g.fillCircle(-20, 20, 9);
+  g.fillCircle(20, 20, 9);
+  g.fillStyle(COLORS.stone);
+  g.fillCircle(-20, 20, 4);
+  g.fillCircle(20, 20, 4);
+  c.add(g);
+  return c;
+}
+
+function drawBook(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+  g.fillStyle(COLORS.shadow, 0.12);
+  g.fillEllipse(0, 28, 66, 8);
+  // two covers meeting at a spine, seen from the front
+  g.fillStyle(0x4E7FB5);
+  g.fillRoundedRect(-34, -26, 68, 52, 4);
+  g.fillStyle(0x6C9BD0);
+  g.fillRoundedRect(-31, -23, 62, 46, 3);
+  g.fillStyle(COLORS.white);
+  g.fillRoundedRect(-27, -19, 24, 38, 2);
+  g.fillRoundedRect(3, -19, 24, 38, 2);
+  g.fillStyle(0x4E7FB5);
+  g.fillRect(-2, -23, 4, 46);
+  g.lineStyle(1.5, COLORS.stoneDeep, 0.5);
+  for (let i = 0; i < 4; i++) {
+    g.lineBetween(-23, -12 + i * 8, -7, -12 + i * 8);
+    g.lineBetween(7, -12 + i * 8, 23, -12 + i * 8);
+  }
+  c.add(g);
+  return c;
+}
+
+function drawHat(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+  g.fillStyle(COLORS.shadow, 0.12);
+  g.fillEllipse(0, 22, 78, 9);
+  g.fillStyle(0xC98A4E);
+  g.fillEllipse(0, 14, 84, 22);
+  g.fillStyle(0xE0A868);
+  g.fillEllipse(0, 12, 78, 18);
+  g.fillStyle(0xC98A4E);
+  g.fillRoundedRect(-25, -26, 50, 40, { tl: 18, tr: 18, bl: 4, br: 4 });
+  g.fillStyle(0xE0A868);
+  g.fillRoundedRect(-25, -26, 22, 40, { tl: 18, tr: 0, bl: 4, br: 0 });
+  g.fillStyle(COLORS.roof);
+  g.fillRect(-25, 2, 50, 10);
+  c.add(g);
+  return c;
+}
+
+function drawSock(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+  // an L shape: leg down, foot forward
+  g.fillStyle(0xE0687A);
+  g.fillRoundedRect(-14, -32, 28, 44, 6);
+  g.fillRoundedRect(-14, 2, 46, 24, { tl: 4, tr: 12, bl: 6, br: 12 });
+  g.fillStyle(0xF08FA0);
+  g.fillRoundedRect(-14, -32, 12, 44, { tl: 6, tr: 0, bl: 0, br: 0 });
+  g.fillStyle(COLORS.white, 0.85);
+  g.fillRect(-14, -30, 28, 7);
+  g.fillRect(-14, -20, 28, 5);
+  c.add(g);
+  return c;
+}
+
+function drawMouse(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+  g.lineStyle(3, 0xBBA9A0);
+  g.beginPath();
+  g.arc(30, 6, 14, Phaser.Math.DegToRad(150), Phaser.Math.DegToRad(20), true);
+  g.strokePath();
+  g.fillStyle(0xBBA9A0);
+  g.fillCircle(-18, -10, 13);
+  g.fillCircle(16, -12, 13);
+  g.fillStyle(0xF0C9CE);
+  g.fillCircle(-18, -10, 8);
+  g.fillCircle(16, -12, 8);
+  g.fillStyle(0xC9B7AE);
+  g.fillEllipse(0, 6, 58, 34);
+  g.fillStyle(0xDCCCC4);
+  g.fillEllipse(-4, 10, 44, 24);
+  g.fillStyle(COLORS.ink);
+  g.fillCircle(-14, 2, 2.6);
+  g.fillCircle(6, 2, 2.6);
+  g.fillStyle(0xE07A8C);
+  g.fillCircle(-4, 10, 3.4);
+  g.lineStyle(1.4, COLORS.ink, 0.5);
+  for (const dy of [-2, 2]) {
+    g.lineBetween(-8, 10 + dy, -28, 6 + dy * 2);
+    g.lineBetween(0, 10 + dy, 20, 6 + dy * 2);
+  }
+  c.add(g);
+  return c;
+}
+
+function drawTrain(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+  g.fillStyle(COLORS.shadow, 0.12);
+  g.fillEllipse(0, 28, 78, 8);
+  // funnel and smoke
+  g.fillStyle(COLORS.white, 0.8);
+  g.fillCircle(-18, -34, 7);
+  g.fillCircle(-8, -40, 5);
+  g.fillStyle(0x3F7D5C);
+  g.fillRoundedRect(-24, -26, 12, 14, 3);
+  // cab and boiler
+  g.fillStyle(0x4E9B72);
+  g.fillRoundedRect(4, -30, 30, 34, 5);
+  g.fillRoundedRect(-32, -12, 66, 24, 6);
+  g.fillStyle(COLORS.window);
+  g.fillRoundedRect(11, -24, 16, 14, 3);
+  g.fillStyle(0x3F7D5C);
+  g.fillRoundedRect(-34, -16, 70, 7, 3);
+  g.fillStyle(COLORS.ink, 0.85);
+  g.fillCircle(-18, 16, 10);
+  g.fillCircle(14, 16, 8);
+  g.fillStyle(COLORS.sunDeep);
+  g.fillCircle(-18, 16, 4);
+  g.fillCircle(14, 16, 3);
+  c.add(g);
+  return c;
+}
+
+function drawMoon(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+  // a crescent, cut by overlapping the ground colour would not work on a white card,
+  // so it is drawn as an arc band instead
+  g.fillStyle(COLORS.sun);
+  g.beginPath();
+  g.arc(0, 0, 34, Phaser.Math.DegToRad(55), Phaser.Math.DegToRad(305), false);
+  g.arc(14, 0, 30, Phaser.Math.DegToRad(300), Phaser.Math.DegToRad(60), true);
+  g.closePath();
+  g.fillPath();
+  g.fillStyle(COLORS.sunDeep, 0.35);
+  g.fillCircle(-14, 10, 5);
+  g.fillCircle(-6, -14, 3.5);
+  // a couple of stars for company
+  g.fillStyle(COLORS.sun, 0.9);
+  for (const [sx, sy, r] of [[26, -26, 3], [30, 16, 2.4], [18, 30, 2]] as const) {
+    g.fillCircle(sx, sy, r);
+  }
+  c.add(g);
+  return c;
 }
 
 function drawSunFace(scene: Phaser.Scene): Phaser.GameObjects.Container {

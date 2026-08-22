@@ -64,7 +64,8 @@ const SAVE_VERSION = 3;
 
 /** Rooms the hotel starts with. The fourth is a shop upgrade. */
 export const BASE_ROOM_COUNT = 3;
-export const MAX_ROOM_COUNT = 4;
+/** Three to begin with, a fourth from one upgrade, then two more from the second floor. */
+export const MAX_ROOM_COUNT = 6;
 export const LOUNGER_COUNT = 4;
 export const FLOWER_COUNT = 5;
 export const APPLE_COUNT = 5;
@@ -150,9 +151,20 @@ class GameState {
     return this.rooms.length;
   }
 
-  /** Adds the room the fourth-room upgrade paid for. */
+  /**
+   * Grows the hotel to whatever the bought upgrades entitle it to.
+   *
+   * Each upgrade *adds* capacity rather than setting it, so buying the cheap one first is
+   * never wasted — a second floor that jumped straight to six rooms would have made the
+   * fourth-room upgrade pointless.
+   */
   private growRooms(): void {
-    while (this.rooms.length < MAX_ROOM_COUNT && this.owns('room4')) {
+    let target = BASE_ROOM_COUNT;
+    if (this.owns('room4')) target += 1;
+    if (this.owns('floor2')) target += 2;
+    target = Math.min(target, MAX_ROOM_COUNT);
+
+    while (this.rooms.length < target) {
       this.rooms.push(this.freshRoom(this.rooms.length));
     }
   }

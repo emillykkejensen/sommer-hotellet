@@ -7,7 +7,7 @@ import { rewardFor } from '../helpers/Reward';
 import { placeDecorations } from './ShopScene';
 import { caption, drawCloud, drawFlower, drawHead, drawPerson, drawSun, drawTree, gradientBand, shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
-import { reduceMotion } from '../helpers/Motion';
+import { dur, reduceMotion } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
 
 const PETALS = [COLORS.pink, COLORS.red, COLORS.yellow, COLORS.purple, COLORS.white];
@@ -152,7 +152,8 @@ export class GardenScene extends BaseScene {
       }
 
       const bedDone = gameState.garden.flowers.every(Boolean);
-      this.time.delayedCall(320, () => {
+      // decorative pause so the drops land before the reward
+      this.time.delayedCall(dur(320), () => {
         showStarBurst(this, fx, fy - 20);
         rewardFor(this, 'garden', {
           after: () => {

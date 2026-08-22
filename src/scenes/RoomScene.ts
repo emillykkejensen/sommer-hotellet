@@ -7,6 +7,7 @@ import { rewardFor } from '../helpers/Reward';
 import { placeDecorations } from './ShopScene';
 import { caption, drawFlower, shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
+import { dur } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
 
 interface ChoreSpec {
@@ -107,7 +108,7 @@ export class RoomScene extends BaseScene {
     this.buildProgressDots(width / 2, 104, cleanCount, specs.length);
 
     if (gameState.isRoomClean(this.currentRoom)) {
-      this.time.delayedCall(220, () => showSparkle(this, width / 2, height * 0.42, width * 0.7, height * 0.42));
+      this.time.delayedCall(dur(220), () => showSparkle(this, width / 2, height * 0.42, width * 0.7, height * 0.42));
     }
   }
 

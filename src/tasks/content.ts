@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { SKILLS, SkillId, Task, TaskFactory } from './types';
+import { Figure, SKILLS, SkillId, Task, TaskFactory } from './types';
 
 /**
  * Tasks are generated rather than listed, so a child never runs out and never sees the
@@ -33,6 +33,12 @@ const task = (skill: SkillId, level: 1 | 2 | 3, prompt: string, body: Task['body
   body,
   reward,
 });
+
+/** Shuffles drawn options and reports where the right one landed. */
+function figureOptions(answer: Figure, distractors: Figure[]): { options: Figure[]; answer: number } {
+  const options = Phaser.Utils.Array.Shuffle([answer, ...distractors]);
+  return { options, answer: options.indexOf(answer) };
+}
 
 /* ------------------------------------------------------------- matematik --- */
 
@@ -160,11 +166,14 @@ const patternFactories: TaskFactory[] = [
   {
     skill: 'mønstre', level: 1, areas: ['garden', 'rooms'],
     make: () => {
-      const [a, b] = Phaser.Utils.Array.Shuffle([0, 1, 2, 3]).slice(0, 2);
+      // Three distinct colours. Building the options as [b, a, 2, 3].slice(0, 3) used to
+      // repeat a colour whenever a or b happened to be 2, which put two identical swatches
+      // on screen — both counted as correct, which teaches nothing.
+      const [a, b, c] = Phaser.Utils.Array.Shuffle([0, 1, 2, 3]).slice(0, 3);
       const seq = [a, b, a, b, a];
       return task('mønstre', 1,
         'Blomsterne står i et mønster. Hvilken farve mangler?',
-        { template: 'pattern', sequence: seq, options: Phaser.Utils.Array.Shuffle([b, a, 2, 3].slice(0, 3)), answer: b });
+        { template: 'pattern', sequence: seq, options: Phaser.Utils.Array.Shuffle([a, b, c]), answer: b });
     },
   },
   {
@@ -302,9 +311,342 @@ const danskFactories: TaskFactory[] = [
   },
 ];
 
+/* --------------------------------------------------- doubling and sharing --- */
+
+const shareFactories: TaskFactory[] = [
+  {
+    skill: 'fordobling', level: 1, areas: ['kitchen', 'pool'],
+    make: () => {
+      const n = between(1, 5);
+      return task('fordobling', 1,
+        `Der kommer dobbelt så mange gæster som i går. I går var der ${n}. Hvor mange i dag?`,
+        { template: 'pick-one', options: numberOptions(n * 2, 2), answer: String(n * 2), big: true });
+    },
+  },
+  {
+    skill: 'fordobling', level: 2, areas: ['kitchen', 'pool'],
+    make: () => {
+      const n = between(4, 12);
+      return task('fordobling', 2,
+        `Opskriften er til ${n} personer. Vi skal lave dobbelt så meget. Til hvor mange?`,
+        { template: 'number-pad', answer: n * 2 }, 3);
+    },
+  },
+  {
+    skill: 'deling', level: 1, areas: ['kitchen'],
+    make: () => {
+      const each = between(1, 3);
+      const guests = between(2, 3);
+      return task('deling', 1,
+        `${guests} gæster skal have lige mange pandekager. Der er ${each * guests}. Hvor mange får hver?`,
+        { template: 'pick-one', options: numberOptions(each, 2), answer: String(each), big: true });
+    },
+  },
+  {
+    skill: 'deling', level: 2, areas: ['kitchen', 'lobby'],
+    make: () => {
+      const each = between(2, 5);
+      const guests = between(3, 4);
+      return task('deling', 2,
+        `Der er ${each * guests} boller og ${guests} borde. Hvor mange boller til hvert bord?`,
+        { template: 'number-pad', answer: each }, 3);
+    },
+  },
+];
+
+/* ------------------------------------------------------------- fractions --- */
+
+const fractionFactories: TaskFactory[] = [
+  {
+    skill: 'brøker', level: 1, areas: ['kitchen'],
+    make: () => {
+      const slices = pick([2, 4] as const);
+      const wrong = slices === 2 ? [4, 3] : [2, 3];
+      const { options, answer } = figureOptions(
+        { kind: 'cake', slices },
+        wrong.map(w => ({ kind: 'cake', slices: w }) as Figure)
+      );
+      const word = slices === 2 ? 'to lige store stykker' : 'fire lige store stykker';
+      return task('brøker', 1,
+        `Kagen skal deles i ${word}. Hvilken kage er rigtig?`,
+        { template: 'pick-image', options, answer });
+    },
+  },
+  {
+    skill: 'brøker', level: 2, areas: ['kitchen'],
+    make: () => {
+      const slices = pick([2, 4] as const);
+      const left = slices / 2;
+      const { options, answer } = figureOptions(
+        { kind: 'cake', slices, left },
+        [
+          { kind: 'cake', slices, left: slices },
+          { kind: 'cake', slices, left: 1 },
+        ].filter(f => (f as any).left !== left) as Figure[]
+      );
+      return task('brøker', 2,
+        'Gæsterne har spist halvdelen af kagen. Hvilken kage er der halvdelen af?',
+        { template: 'pick-image', options, answer }, 3);
+    },
+  },
+  {
+    skill: 'brøker', level: 3, areas: ['kitchen'],
+    make: () => {
+      const slices = 4;
+      const eaten = between(1, 3);
+      return task('brøker', 3,
+        `Kagen var delt i ${slices} stykker, og ${eaten} er spist. Hvor mange er der tilbage?`,
+        { template: 'number-pad', answer: slices - eaten }, 3);
+    },
+  },
+];
+
+/* ---------------------------------------------------- shapes and ordering --- */
+
+const SHAPES = ['cirkel', 'firkant', 'trekant', 'rektangel'] as const;
+
+const shapeFactories: TaskFactory[] = [
+  {
+    skill: 'figurer', level: 1, areas: ['garden', 'rooms'],
+    make: () => {
+      const [target, ...rest] = Phaser.Utils.Array.Shuffle([...SHAPES]);
+      const { options, answer } = figureOptions(
+        { kind: 'shape', shape: target },
+        rest.slice(0, 2).map(sh => ({ kind: 'shape', shape: sh }) as Figure)
+      );
+      return task('figurer', 1,
+        `Sandslottet skal have en ${target}. Hvilken er det?`,
+        { template: 'pick-image', options, answer });
+    },
+  },
+  {
+    skill: 'figurer', level: 2, areas: ['garden', 'rooms'],
+    make: () => {
+      const [target, ...rest] = Phaser.Utils.Array.Shuffle([...SHAPES]);
+      const corners: Record<string, number> = { cirkel: 0, trekant: 3, firkant: 4, rektangel: 4 };
+      const distractors = rest.filter(sh => corners[sh] !== corners[target]).slice(0, 2);
+      const { options, answer } = figureOptions(
+        { kind: 'shape', shape: target },
+        distractors.map(sh => ({ kind: 'shape', shape: sh }) as Figure)
+      );
+      const n = corners[target];
+      return task('figurer', 2,
+        n === 0 ? 'Hvilken figur har slet ingen hjørner?' : `Hvilken figur har ${n} hjørner?`,
+        { template: 'pick-image', options, answer }, 3);
+    },
+  },
+  {
+    skill: 'sortering', level: 1, areas: ['rooms', 'pool'],
+    make: () => task('sortering', 1,
+      'Læg håndklæderne i stakken. Tryk på det mindste først.',
+      {
+        template: 'put-in-order',
+        hint: 'mindst → størst',
+        items: [
+          { rank: 0, figure: { kind: 'towel', size: 1 } },
+          { rank: 1, figure: { kind: 'towel', size: 2 } },
+          { rank: 2, figure: { kind: 'towel', size: 3 } },
+        ],
+      }),
+  },
+  {
+    skill: 'sortering', level: 2, areas: ['rooms', 'pool'],
+    make: () => task('sortering', 2,
+      'Nu den anden vej: tryk på det største håndklæde først.',
+      {
+        template: 'put-in-order',
+        hint: 'størst → mindst',
+        items: [
+          { rank: 0, figure: { kind: 'towel', size: 3 } },
+          { rank: 1, figure: { kind: 'towel', size: 2 } },
+          { rank: 2, figure: { kind: 'towel', size: 1 } },
+        ],
+      }, 3),
+  },
+];
+
+/* ------------------------------------------------------- clock and scales --- */
+
+const dialFactories: TaskFactory[] = [
+  {
+    skill: 'tallinje', level: 1, areas: ['pool'],
+    make: () => {
+      const target = between(22, 27);
+      const from = target + pick([-4, -3, 3, 4]);
+      return task('tallinje', 1,
+        `Poolen skal være ${target} grader. Skru på termometret.`,
+        { template: 'adjust', dial: 'thermometer', from, target, min: 15, max: 32, step: 1 });
+    },
+  },
+  {
+    skill: 'tallinje', level: 2, areas: ['pool'],
+    make: () => {
+      const target = between(18, 30);
+      const from = Phaser.Math.Clamp(target + pick([-7, -6, 6, 7]), 15, 32);
+      return task('tallinje', 2,
+        `I dag skal poolen være ${target} grader.`,
+        { template: 'adjust', dial: 'thermometer', from, target, min: 15, max: 32, step: 1 }, 3);
+    },
+  },
+  {
+    skill: 'klokken', level: 1, areas: ['rooms', 'kitchen'],
+    make: () => {
+      const target = between(6, 11);
+      const from = ((target + between(2, 5) - 1) % 12) + 1;
+      return task('klokken', 1,
+        `Morgenmaden starter klokken ${target}. Sæt uret.`,
+        { template: 'adjust', dial: 'clock', from, target, min: 1, max: 12, step: 1 });
+    },
+  },
+  {
+    skill: 'klokken', level: 2, areas: ['rooms', 'kitchen'],
+    make: () => {
+      const hour = between(2, 9);
+      const { options, answer } = figureOptions(
+        { kind: 'clock', hour },
+        [
+          { kind: 'clock', hour: (hour % 12) + 1 },
+          { kind: 'clock', hour: hour + 0.5 },
+        ] as Figure[]
+      );
+      return task('klokken', 2,
+        `Hvilket ur viser klokken ${hour}?`,
+        { template: 'pick-image', options, answer }, 3);
+    },
+  },
+  {
+    skill: 'klokken', level: 3, areas: ['rooms', 'kitchen'],
+    make: () => {
+      // Danish half hours run backwards: "halv otte" is 7:30
+      const spoken = between(2, 10);
+      const value = spoken - 0.5;
+      const from = spoken - 0.5 + pick([-2, -1, 1, 2]);
+      return task('klokken', 3,
+        `Frokosten er halv ${spoken === 1 ? 'et' : spoken}. Sæt uret til halv ${spoken}.`,
+        {
+          template: 'adjust', dial: 'clock',
+          from: Math.max(1, from), target: value,
+          min: 1, max: 12.5, step: 0.5,
+        }, 4);
+    },
+  },
+];
+
+/* ---------------------------------------------------------- more Danish --- */
+
+const SYLLABLES: [string, number][] = [
+  ['Sofia', 3], ['Jensen', 2], ['Pedersen', 3], ['Hansen', 2],
+  ['Andersen', 3], ['Møller', 2], ['Christensen', 3], ['Larsen', 2],
+];
+
+const moreDanskFactories: TaskFactory[] = [
+  {
+    skill: 'stavelser', level: 1, areas: ['lobby', 'rooms'],
+    make: () => {
+      const [name, count] = pick(SYLLABLES.filter(([, n]) => n === 2));
+      return task('stavelser', 1,
+        `Klap stavelserne i "${name}". Tryk én gang for hver.`,
+        { template: 'count-taps', target: count, icon: 'clap' });
+    },
+  },
+  {
+    skill: 'stavelser', level: 2, areas: ['lobby', 'rooms', 'garden'],
+    make: () => {
+      const [name, count] = pick(SYLLABLES);
+      return task('stavelser', 2,
+        `Hvor mange stavelser er der i "${name}"? Klap dem.`,
+        { template: 'count-taps', target: count, icon: 'clap' }, 3);
+    },
+  },
+  {
+    skill: 'alfabet', level: 1, areas: ['lobby'],
+    make: () => {
+      const start = between(0, 20);
+      const letters = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','X','Y','Z'];
+      const three = [letters[start], letters[start + 1], letters[start + 2]];
+      return task('alfabet', 1,
+        'Hæng nøglerne op i alfabetisk orden.',
+        {
+          template: 'put-in-order',
+          hint: 'A først',
+          items: three.map((letter, i) => ({ rank: i, figure: { kind: 'letter', text: letter } as Figure })),
+        });
+    },
+  },
+  {
+    skill: 'alfabet', level: 2, areas: ['lobby'],
+    make: () => {
+      const letters = Phaser.Utils.Array.Shuffle(
+        ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','R','S','T','U','V']
+      ).slice(0, 3).sort();
+      return task('alfabet', 2,
+        'Gæsterne skal skrives i gæstebogen i alfabetisk orden.',
+        {
+          template: 'put-in-order',
+          hint: 'A først',
+          items: letters.map((letter, i) => ({ rank: i, figure: { kind: 'letter', text: letter } as Figure })),
+        }, 3);
+    },
+  },
+  {
+    skill: 'forlyd', level: 1, areas: ['pool', 'rooms'],
+    make: () => {
+      const letter = pick(LETTERS);
+      const [a, b] = Phaser.Utils.Array.Shuffle([...LETTER_WORDS[letter]]).slice(0, 2);
+      const others = Phaser.Utils.Array.Shuffle(LETTERS.filter(l => l !== letter))
+        .slice(0, 2)
+        .map(l => pick(LETTER_WORDS[l]));
+      return task('forlyd', 1,
+        `"${a}" ligger i den blå kurv. Hvilket ord starter med samme lyd?`,
+        { template: 'pick-one', options: options(b, others), answer: b });
+    },
+  },
+  {
+    skill: 'forlyd', level: 2, areas: ['pool', 'kitchen'],
+    make: () => {
+      const letter = pick(LETTERS);
+      const same = Phaser.Utils.Array.Shuffle([...LETTER_WORDS[letter]]).slice(0, 2);
+      const odd = pick(LETTER_WORDS[pick(LETTERS.filter(l => l !== letter))]);
+      return task('forlyd', 2,
+        'Ét ord hører ikke til i kurven. Hvilket?',
+        { template: 'pick-one', options: options(odd, same), answer: odd }, 3);
+    },
+  },
+  {
+    skill: 'bogstavform', level: 1, areas: ['rooms', 'lobby'],
+    make: () => {
+      const letter = pick(LETTERS);
+      const others = Phaser.Utils.Array.Shuffle(LETTERS.filter(l => l !== letter)).slice(0, 2);
+      return task('bogstavform', 1,
+        `På skiltet står ${letter}. Hvilket lille bogstav passer til?`,
+        {
+          template: 'pick-one',
+          options: options(letter.toLowerCase(), others.map(l => l.toLowerCase())),
+          answer: letter.toLowerCase(),
+          big: true,
+        });
+    },
+  },
+  {
+    skill: 'bogstavform', level: 2, areas: ['rooms', 'garden'],
+    make: () => {
+      const letter = pick(LETTERS);
+      const others = Phaser.Utils.Array.Shuffle(LETTERS.filter(l => l !== letter)).slice(0, 2);
+      return task('bogstavform', 2,
+        `Nøglen er mærket med ${letter.toLowerCase()}. Hvilket stort bogstav er det?`,
+        { template: 'pick-one', options: options(letter, others), answer: letter, big: true }, 3);
+    },
+  },
+];
+
 export const FACTORIES: TaskFactory[] = [
   ...countingFactories,
   ...numberFactories,
   ...patternFactories,
+  ...shareFactories,
+  ...fractionFactories,
+  ...shapeFactories,
+  ...dialFactories,
   ...danskFactories,
+  ...moreDanskFactories,
 ];

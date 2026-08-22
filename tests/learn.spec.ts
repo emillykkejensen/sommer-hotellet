@@ -80,11 +80,11 @@ test('three right in a row promotes a skill to the next level', async ({ page })
   const game = await Game.openWithSave(page, {
     stars: 0,
     settings: { mode: 'laer', matematik: true, dansk: false, speak: false },
-    // Only maths, and mønstre already well practised, so the picker (which prefers the
-    // least-practised skill) reliably reaches for tælling.
+    // One tælling task away from a promotion, with every other skill marked well
+    // practised so the picker reliably reaches for it.
     skills: {
-      tælling: { seen: 0, correct: 0, streak: 2, missed: 0, level: 1 },
-      mønstre: { seen: 20, correct: 20, streak: 0, missed: 0, level: 3 },
+      ...Game.focusSkill('tælling'),
+      'tælling': { seen: 0, correct: 0, streak: 2, missed: 0, level: 1 },
     },
   });
   await game.start();
@@ -107,17 +107,9 @@ test('three right in a row promotes a skill to the next level', async ({ page })
 test('every number-pad key is reachable', async ({ page }) => {
   const game = await Game.openWithSave(page, {
     settings: { mode: 'laer', matematik: true, dansk: false, speak: false },
-    // minus at level 2 uses the number pad. Every other skill with a factory in the
-    // rooms is marked well practised, so the picker (least-practised first) reaches for
-    // minus. Note the picker falls back to the nearest level at or below, so a high level
-    // alone would not rule a skill out — the `seen` count is what decides.
-    skills: {
-      minus: { seen: 0, correct: 0, streak: 0, missed: 0, level: 2 },
-      plus: { seen: 30, correct: 30, streak: 0, missed: 0, level: 1 },
-      'talgenkendelse': { seen: 30, correct: 30, streak: 0, missed: 0, level: 2 },
-      'mønstre': { seen: 30, correct: 30, streak: 0, missed: 0, level: 2 },
-      'tælling': { seen: 30, correct: 30, streak: 0, missed: 0, level: 2 },
-    },
+    // minus at level 2 uses the number pad; every other skill is marked well practised so
+    // the picker (least-practised first) reaches for it
+    skills: Game.focusSkill('minus', 2),
     rooms: Array.from({ length: 3 }, () => ({
       bedMade: false, curtainsOpen: false, flowersPlaced: false,
       vacuumed: false, towelsFolded: false, guestId: null,

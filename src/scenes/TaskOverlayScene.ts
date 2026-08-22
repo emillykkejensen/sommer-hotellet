@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { COLORS, DEPTH, INK, INK_SOFT, SIZE, text } from '../config';
 import { gameState } from '../state/GameState';
 import { IconKind, Task, TaskBody } from '../tasks/types';
+import { clockLabel, drawClock, drawFigure, drawThermometer } from '../tasks/figures';
 import { showCheckmark, showStarBurst, showToast } from '../objects/FeedbackEffects';
 import { shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
@@ -64,8 +65,9 @@ export class TaskOverlayScene extends Phaser.Scene {
     // A pick-one row needs far less height than a number pad; a fixed card left a short
     // task floating in empty white.
     const template = this.task.body.template;
-    const ph = template === 'number-pad' ? 452 : template === 'count-taps' ? 400 : 330;
-    const tall = template === 'number-pad' || template === 'count-taps';
+    const TALL: TaskBody['template'][] = ['number-pad', 'count-taps', 'adjust'];
+    const ph = template === 'number-pad' ? 452 : TALL.includes(template) ? 400 : 350;
+    const tall = TALL.includes(template);
     this.panel = this.add.container(width / 2, height / 2).setDepth(DEPTH.chrome + 10);
 
     const card = this.add.graphics();
@@ -215,6 +217,41 @@ export class TaskOverlayScene extends Phaser.Scene {
         g.fillStyle(COLORS.grass);
         g.fillEllipse(0, -22, 12, 16);
         break;
+      case 'clap': {
+        // Two hands meeting. Each is drawn in its own rotated container — a flat pair of
+        // rounded rectangles read as two beige slabs, not as hands.
+        const impact = this.add.graphics();
+        impact.lineStyle(3, COLORS.sunDeep, 0.9);
+        for (let i = -1; i <= 1; i++) {
+          const a = Phaser.Math.DegToRad(i * 34);
+          impact.lineBetween(Math.cos(a) * 26, Math.sin(a) * 26 - 4, Math.cos(a) * 38, Math.sin(a) * 38 - 4);
+          impact.lineBetween(-Math.cos(a) * 26, Math.sin(a) * 26 - 4, -Math.cos(a) * 38, Math.sin(a) * 38 - 4);
+        }
+        c.add(impact);
+
+        for (const side of [-1, 1] as const) {
+          const hand = this.add.graphics();
+          // palm
+          hand.fillStyle(0xE8C4A2);
+          hand.fillRoundedRect(-11, -16, 22, 34, { tl: 10, tr: 10, bl: 6, br: 6 });
+          hand.fillStyle(0xF6D9BE);
+          hand.fillRoundedRect(-11, -16, 15, 34, { tl: 9, tr: 0, bl: 5, br: 0 });
+          // finger creases, so it is not one solid shape
+          hand.lineStyle(1.5, 0xD2A681, 0.8);
+          for (let f = 0; f < 3; f++) hand.lineBetween(-8, -8 + f * 8, 8, -8 + f * 8);
+          // thumb
+          hand.fillStyle(0xE8C4A2);
+          hand.fillRoundedRect(6, 4, 13, 9, 4.5);
+          hand.lineStyle(1.5, 0xD2A681, 0.6);
+          hand.strokeRoundedRect(-11, -16, 22, 34, 8);
+
+          const holder = this.add.container(side * 13, 0, [hand]);
+          holder.setAngle(side * 14);
+          holder.setScale(side, 1);
+          c.add(holder);
+        }
+        break;
+      }
       case 'cup':
         g.fillStyle(COLORS.shadow, 0.12);
         g.fillEllipse(0, 20, 34, 8);
@@ -244,6 +281,9 @@ export class TaskOverlayScene extends Phaser.Scene {
       case 'pick-one': return this.buildPickOne(b);
       case 'number-pad': return this.buildNumberPad(b);
       case 'pattern': return this.buildPattern(b);
+      case 'pick-image': return this.buildPickImage(b);
+      case 'put-in-order': return this.buildPutInOrder(b);
+      case 'adjust': return this.buildAdjust(b);
     }
   }
 
@@ -284,8 +324,12 @@ export class TaskOverlayScene extends Phaser.Scene {
       counter.setText(`${this.taps} af ${target}`);
 
       if (this.taps === target) {
-        // small pause so the child can see the last pip land
-        this.time.delayedCall(dur(260), () => this.succeed());
+        // Small pause so the child can see the last pip land — but re-check the count when
+        // it fires. Tapping once more in that window used to reset the pips, say "one too
+        // many", and then succeed anyway.
+        this.time.delayedCall(dur(260), () => {
+          if (this.taps === target) this.succeed();
+        });
       } else if (this.taps > target) {
         // overshot: reset rather than fail
         this.taps = 0;
@@ -464,6 +508,174 @@ export class TaskOverlayScene extends Phaser.Scene {
         }
       });
     });
+  }
+
+  /** Pick the right drawing: a shape, a cut cake, a clock face. */
+  private buildPickImage(b: Extract<TaskBody, { template: 'pick-image' }>): void {
+    const live = b.options
+      .map((figure, index) => ({ figure, index }))
+      .filter(o => !this.ruledOut.includes(String(o.index)));
+
+    const size = 128;
+    const gap = 26;
+    const totalW = live.length * size + (live.length - 1) * gap;
+
+    live.forEach((option, i) => {
+      const x = -totalW / 2 + size / 2 + i * (size + gap);
+      const c = this.add.container(x, 16);
+
+      const g = this.add.graphics();
+      shadow(g, -size / 2, -size / 2, size, size, 18, 4, 0.16);
+      g.fillStyle(COLORS.white);
+      g.fillRoundedRect(-size / 2, -size / 2, size, size, 18);
+      g.lineStyle(2.5, this.accent(), 0.45);
+      g.strokeRoundedRect(-size / 2, -size / 2, size, size, 18);
+      c.add(g);
+      c.add(drawFigure(this, option.figure));
+      this.body.add(c);
+
+      tappable(this, c, size, size, () => {
+        if (this.finished) return;
+        if (option.index === b.answer) {
+          this.succeed();
+        } else {
+          this.ruledOut.push(String(option.index));
+          this.wobble(c);
+          this.miss('Ikke helt. Se godt på dem, og prøv igen.');
+          this.time.delayedCall(dur(420), () => this.buildBody());
+        }
+      });
+    });
+  }
+
+  /**
+   * Tap the items in order — smallest first, or alphabetically.
+   *
+   * A wrong tap resets the run rather than ending anything, so the child can start the
+   * sequence again without losing the task.
+   */
+  private buildPutInOrder(b: Extract<TaskBody, { template: 'put-in-order' }>): void {
+    // Shuffled once per attempt, seeded off nothing — a fresh order each retry is fine
+    // and keeps the child from just repeating a remembered position.
+    const shuffled = Phaser.Utils.Array.Shuffle([...b.items]);
+    let nextRank = 0;
+    const taken: Phaser.GameObjects.Container[] = [];
+
+    const size = 118;
+    const gap = 22;
+    const totalW = shuffled.length * size + (shuffled.length - 1) * gap;
+
+    this.body.add(this.add.text(0, -76, b.hint, text(SIZE.label, INK_SOFT, 'semibold'))
+      .setOrigin(0.5));
+
+    shuffled.forEach((item, i) => {
+      const x = -totalW / 2 + size / 2 + i * (size + gap);
+      const c = this.add.container(x, 18);
+
+      const g = this.add.graphics();
+      shadow(g, -size / 2, -size / 2, size, size, 18, 4, 0.16);
+      g.fillStyle(COLORS.white);
+      g.fillRoundedRect(-size / 2, -size / 2, size, size, 18);
+      g.lineStyle(2.5, this.accent(), 0.45);
+      g.strokeRoundedRect(-size / 2, -size / 2, size, size, 18);
+      c.add(g);
+      c.add(drawFigure(this, item.figure));
+
+      const badge = this.add.text(0, size / 2 - 20, '', text(SIZE.label, '#FFFFFF', 'bold'))
+        .setOrigin(0.5);
+      c.add(badge);
+      c.setData('rank', item.rank);
+      c.setData('badge', badge);
+      this.body.add(c);
+
+      tappable(this, c, size, size, () => {
+        if (this.finished || c.getData('done')) return;
+
+        if (item.rank !== nextRank) {
+          this.wobble(c);
+          this.miss(nextRank === 0
+            ? 'Start med den første.'
+            : 'Ikke den. Prøv en anden.');
+          // clear the run so the child can start over
+          nextRank = 0;
+          taken.forEach(t => {
+            t.setData('done', false);
+            t.setAlpha(1);
+            (t.getData('badge') as Phaser.GameObjects.Text).setText('');
+          });
+          taken.length = 0;
+          return;
+        }
+
+        nextRank++;
+        c.setData('done', true);
+        c.setAlpha(0.55);
+        badge.setText(`${nextRank}`);
+        taken.push(c);
+
+        const ring = this.add.graphics();
+        ring.fillStyle(this.accent());
+        ring.fillCircle(0, size / 2 - 20, 13);
+        c.addAt(ring, c.list.length - 1);
+
+        if (nextRank === b.items.length) {
+          this.time.delayedCall(dur(260), () => this.succeed());
+        }
+      });
+    });
+  }
+
+  /** Turn a dial to a target: the pool thermometer, or the breakfast clock. */
+  private buildAdjust(b: Extract<TaskBody, { template: 'adjust' }>): void {
+    let value = b.from;
+
+    // The dial is the whole task, so it gets the space: a 40px clock face in a 680px card
+    // was unreadable.
+    const dial = this.add.container(0, -24).setScale(1.5);
+    this.body.add(dial);
+
+    const reading = this.add.text(0, 74, '', text(SIZE.title - 2, INK, 'bold')).setOrigin(0.5);
+    this.body.add(reading);
+
+    const render = () => {
+      dial.removeAll(true);
+      dial.add(b.dial === 'clock'
+        ? drawClock(this, value)
+        : drawThermometer(this, value, b.min, b.max));
+      reading.setText(b.dial === 'clock'
+        ? `Klokken er ${clockLabel(value)}`
+        : `${value} ${b.unit ?? 'grader'}`);
+    };
+
+    const stepBy = (delta: number) => {
+      if (this.finished) return;
+      const next = Phaser.Math.Clamp(value + delta, b.min, b.max);
+      if (next === value) return;
+      value = Math.round(next / b.step) * b.step;
+      render();
+
+      if (Math.abs(value - b.target) < b.step / 2) {
+        this.time.delayedCall(dur(320), () => this.succeed());
+      }
+    };
+
+    this.buildStepButton(-150, 74, '−', () => stepBy(-b.step));
+    this.buildStepButton(150, 74, '+', () => stepBy(b.step));
+
+    render();
+  }
+
+  private buildStepButton(x: number, y: number, glyph: string, onTap: () => void): void {
+    const c = this.add.container(x, y);
+    const g = this.add.graphics();
+    shadow(g, -34, -28, 68, 56, 18, 3, 0.18);
+    g.fillStyle(this.accent());
+    g.fillRoundedRect(-34, -28, 68, 56, 18);
+    g.fillStyle(COLORS.white, 0.22);
+    g.fillRoundedRect(-31, -25, 62, 24, 14);
+    c.add([g, this.add.text(0, -2, glyph, text(38, '#FFFFFF', 'bold')).setOrigin(0.5)]);
+    this.body.add(c);
+    tappable(this, c, 68, 56, onTap);
   }
 
   /* --------------------------------------------------------------- outcome --- */

@@ -43,8 +43,9 @@ src/
   state/GameState.ts     all persisted progress; the single source of truth
   state/Shop.ts          the decoration catalogue, and how each piece is drawn
   tasks/
-    types.ts             Task, TaskBody, the skill list
+    types.ts             Task, TaskBody, Figure, the skill list
     content.ts           task factories — generated, not listed
+    figures.ts           drawn answer options: shapes, cakes, clocks, thermometer
     picker.ts            which task comes next, and at which level
   scenes/
     BaseScene.ts         the three-layer background/dynamic/effects pattern
@@ -72,6 +73,7 @@ tests/
   smoke.spec.ts          one test per scene
   learn.spec.ts          the shop and the task layer
   sound.spec.ts          the audio contract
+  tasks.spec.ts          every factory generates an answerable task
 ```
 
 ### The layer pattern
@@ -132,8 +134,49 @@ level, so a child never runs out and never sees the same numbers twice running:
 }
 ```
 
-Four interaction templates cover all of it: `count-taps`, `pick-one`, `number-pad` and
-`pattern`. Adding content means adding a factory, not a scene.
+45 factories across 19 skills. Adding content means adding a factory, not a scene.
+
+| Skill | Levels | Template(s) |
+| --- | --- | --- |
+| `tælling` | 1–3 | count-taps, number-pad |
+| `talgenkendelse` | 1–2 | pick-one |
+| `plus` | 1–3 | pick-one, number-pad |
+| `minus` | 1–3 | pick-one, number-pad (level 3 is money and change) |
+| `fordobling` | 1–2 | pick-one, number-pad |
+| `deling` | 1–2 | pick-one, number-pad |
+| `brøker` | 1–3 | pick-image (cut cakes), number-pad |
+| `mønstre` | 1–3 | pattern, number-pad |
+| `figurer` | 1–2 | pick-image (shapes) |
+| `sortering` | 1–2 | put-in-order (towel sizes) |
+| `klokken` | 1–3 | adjust (clock), pick-image (level 3 is Danish half hours) |
+| `tallinje` | 1–2 | adjust (pool thermometer) |
+| `bogstavlyd` | 1–3 | pick-one |
+| `rim` | 1–2 | pick-one |
+| `ordlæsning` | 1–2 | pick-one (level 1 matches, level 2 reads a sentence) |
+| `stavelser` | 1–2 | count-taps (clap the name) |
+| `alfabet` | 1–2 | put-in-order (letters) |
+| `forlyd` | 1–2 | pick-one |
+| `bogstavform` | 1–2 | pick-one |
+
+Seven interaction templates cover all of it:
+
+| Template | Interaction | Used for |
+| --- | --- | --- |
+| `count-taps` | tap an object N times, pips fill as you go | counting, syllables |
+| `pick-one` | choose one written option of three | arithmetic, letters, words |
+| `number-pad` | type an answer on a 0–9 pad | larger sums, change |
+| `pattern` | tap the colour that continues a row | patterns |
+| `pick-image` | choose one *drawn* option | shapes, fractions, clock faces |
+| `put-in-order` | tap items in sequence | size, alphabetical order |
+| `adjust` | turn a dial up or down to a target | thermometer, clock |
+
+`pick-image` exists because some answers cannot be words without giving themselves away —
+a shape task whose options read "cirkel" and "trekant" tests reading, not shapes. Those
+options are described as `Figure` values and drawn by `tasks/figures.ts`.
+
+`adjust` covers the thermometer and the clock with one mechanic, because both are the same
+idea: move a number to where it should be. It has no wrong answer — the dial is either
+there yet or it is not.
 
 `tasks/picker.ts` chooses the least-practised eligible skill, then the factory closest to
 that skill's current level *at or below it* — not an exact match, because not every skill
@@ -227,6 +270,19 @@ await game.expectSave(s => s.skills[skill].correct).toBe(1);
 `Game.openWithSave(page, patch)` seeds a save before the page loads, to reach a state
 without grinding for it.
 
+The task factories are pure generators, so `tasks.spec.ts` skips the UI entirely and pulls
+them straight off the dev server to exercise every one 60 times:
+
+```ts
+const mod = await import(/* @vite-ignore */ '/src/tasks/content.ts');
+for (const factory of mod.FACTORIES) { /* assert the task is answerable */ }
+```
+
+That is what catches an unanswerable task — an answer missing from its own options, a
+number whose digits are not on the pad, a dial whose target is not a whole number of steps
+away. Driving 45 factories through the canvas would take twenty minutes; this takes a
+second.
+
 The harness waits for the game to stop moving rather than sleeping a fixed time — under
 software WebGL, Phaser's clamped frame delta stretches a 220 ms fade past a second, and a
 fixed wait fires the next click into the old scene.
@@ -235,8 +291,8 @@ fixed wait fires the next click into the old scene.
 
 - **The shop is the only sink.** Nine items, and once they are all bought stars accumulate
   again. A second tier — new room themes, a second floor — would extend the loop.
-- **Task coverage is uneven.** Clock tasks from `docs/EVALUATION.md` are not built (money
-  is, as `minus` level 3), and the Danish side leans on word recognition because drawn
-  pictures for every noun would be a lot of art.
+- **The Danish side leans on word recognition.** Drawn pictures for every noun would be a
+  lot of art, so `ordlæsning` level 1 matches a written word rather than a picture. Level 2
+  is real sentence reading.
 - **No background music.** Only effects. A quiet loop would suit the setting, but it needs
   a real composition rather than synthesis.

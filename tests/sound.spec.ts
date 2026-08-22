@@ -81,8 +81,11 @@ test('a muted game still plays normally', async ({ page }) => {
 });
 
 test('a task plays feedback for both a right and a wrong answer', async ({ page }) => {
+  // Pinned to the pattern template: it has a real wrong answer that leaves the task open,
+  // which is exactly what this test needs to hear.
   const game = await Game.openWithSave(page, {
     settings: { mode: 'laer', matematik: true, dansk: true, speak: false, sound: true },
+    skills: Game.focusSkill('mønstre'),
   });
   await game.start();
   await game.enter('garden');

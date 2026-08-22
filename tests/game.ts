@@ -1,5 +1,6 @@
 import { Page, expect } from '@playwright/test';
 import { GAME_HEIGHT, GAME_WIDTH } from '../src/config';
+import { ALL_SKILLS, Level } from '../src/tasks/types';
 
 /**
  * Test harness for driving the Phaser canvas.
@@ -110,12 +111,18 @@ export class Game {
         if (cam?.fadeEffect?.isRunning || cam?.flashEffect?.isRunning) return false;
 
         // ignore ambient loops (clouds, floating buttons); wait only on one-shot tweens
-        const busy = scene.tweens.getTweens().some((t: any) => {
+        const busyTweens = scene.tweens.getTweens().some((t: any) => {
           if (t.isPlaying && !t.isPlaying()) return false;
           const loops = t.data?.some?.((d: any) => d.repeat === -1);
           return !loops;
         });
-        if (busy) return false;
+        if (busyTweens) return false;
+
+        // Scenes also defer work with time.delayedCall — a scheduled refresh is not a
+        // tween, so waiting only on tweens let the next click land mid-rebuild.
+        const pending = (scene.time?._active ?? []) as any[];
+        const busyTimers = pending.some((e: any) => !e.loop && !e.repeat && !e.paused);
+        if (busyTimers) return false;
       }
       return true;
     }, undefined, { timeout, polling: 100 });
@@ -243,7 +250,7 @@ export class Game {
     prompt: string;
     /** Options already ruled out by a wrong answer — the scene stops drawing them. */
     ruledOut: string[];
-    hits: { x: number; y: number; label: string | null; w: number; h: number }[];
+    hits: { x: number; y: number; label: string | null; w: number; h: number; rank: number | null }[];
   }> {
     const info = await this.page.evaluate(() => {
       const scene = window.__game.scene.getScene('TaskOverlayScene') as any;
@@ -261,6 +268,8 @@ export class Game {
               label: o.list?.find?.((c: any) => c.type === 'Text')?.text ?? null,
               w: o.input.hitArea?.width ?? 0,
               h: o.input.hitArea?.height ?? 0,
+              // put-in-order stashes the correct position on the container
+              rank: o.getData?.('rank') ?? null,
             });
           }
           if (Array.isArray(o.list)) walk(o.list, x, y);
@@ -336,6 +345,49 @@ export class Game {
         await this.tap(submit.x, submit.y);
         return;
       }
+      case 'pick-image': {
+        // Drawn options carry no label, so they are matched by position among the options
+        // still on screen — a ruled-out option is no longer drawn.
+        const cards = inBody.filter(h => h.label === null && h.w === 128);
+        const liveIndexes = (body.options as unknown[])
+          .map((_, i) => i)
+          .filter(i => !ruledOut.includes(String(i)));
+        const position = correct
+          ? liveIndexes.indexOf(body.answer)
+          : liveIndexes.findIndex(i => i !== body.answer);
+        const card = cards[position];
+        if (!card) throw new Error(`pick-image card missing at position ${position}`);
+        await this.tap(card.x, card.y);
+        return;
+      }
+      case 'put-in-order': {
+        const cards = inBody.filter(h => h.rank !== null);
+        if (cards.length !== body.items.length) {
+          throw new Error(`put-in-order: ${cards.length} cards for ${body.items.length} items`);
+        }
+        if (!correct) {
+          // tapping anything other than rank 0 first is the wrong move
+          const wrong = cards.find(h => h.rank !== 0);
+          if (!wrong) throw new Error('put-in-order: no wrong card to tap');
+          await this.tap(wrong.x, wrong.y);
+          return;
+        }
+        for (const card of [...cards].sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))) {
+          await this.tap(card.x, card.y);
+        }
+        return;
+      }
+      case 'adjust': {
+        // There is no wrong answer here — the dial is either there yet or not — so a
+        // "wrong" request is a mistake in the test, not a thing the child can do.
+        if (!correct) throw new Error('the adjust template has no wrong answer');
+        const steps = Math.round(Math.abs(body.target - body.from) / body.step);
+        const glyph = body.target > body.from ? '+' : '−';
+        const stepper = inBody.find(h => h.label === glyph);
+        if (!stepper) throw new Error(`adjust: no "${glyph}" button`);
+        for (let i = 0; i < steps; i++) await this.tap(stepper.x, stepper.y);
+        return;
+      }
       case 'pattern': {
         // The swatches carry no label, so they have to be matched by position — and the
         // scene stops drawing an option once it has been ruled out, so index into the
@@ -386,6 +438,24 @@ export class Game {
     }, name);
     if (!card) throw new Error(`shop card not found: ${name}`);
     return card;
+  }
+
+  /**
+   * A skills seed that makes the picker reach for one skill.
+   *
+   * The picker prefers the least-practised eligible skill, so everything else is marked
+   * well practised. Reading the list from the source rather than restating it means adding
+   * a skill to the catalogue cannot silently break a test's assumption about which task
+   * will come up.
+   */
+  static focusSkill(skill: string, level: Level = 1): Record<string, unknown> {
+    const skills: Record<string, unknown> = {};
+    for (const id of ALL_SKILLS) {
+      skills[id] = id === skill
+        ? { seen: 0, correct: 0, streak: 0, missed: 0, level }
+        : { seen: 50, correct: 50, streak: 0, missed: 0, level: 1 };
+    }
+    return skills;
   }
 
   /** Seeds a save before the page loads, to reach a state without grinding for it. */

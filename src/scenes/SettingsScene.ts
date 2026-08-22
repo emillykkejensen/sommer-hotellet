@@ -156,13 +156,15 @@ export class SettingsScene extends BaseScene {
       return;
     }
 
-    // two columns of skill rows
-    const rows = practised.slice(0, 8);
+    // Two columns. The catalogue is 19 skills deep, so this is the most-practised slice
+    // rather than the whole list, with a count of what is not shown.
+    const shown = 10;
+    const rows = practised.slice(0, shown);
     rows.forEach(({ skill, progress }, i) => {
       const col = i % 2;
       const row = Math.floor(i / 2);
       const x = cx - 250 + col * 500;
-      const ry = y + 34 + row * 34;
+      const ry = y + 32 + row * 32;
 
       const c = this.add.container(x, ry);
       const subject = SKILLS[skill as SkillId]?.subject ?? 'matematik';
@@ -189,6 +191,14 @@ export class SettingsScene extends BaseScene {
 
       this.dyn(c);
     });
+
+    const hidden = practised.length - rows.length;
+    if (hidden > 0) {
+      const lastRow = Math.ceil(rows.length / 2);
+      this.dyn(this.add.text(cx, y + 34 + lastRow * 32,
+        `og ${hidden} ${hidden === 1 ? 'færdighed' : 'færdigheder'} mere`,
+        text(SIZE.tiny, INK_SOFT, 'semibold')).setOrigin(0.5));
+    }
   }
 
   /* ----------------------------------------------------------------- reset --- */

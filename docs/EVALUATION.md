@@ -9,6 +9,20 @@ from reading the source. **No game code was changed while producing this review.
 
 ---
 
+## Status
+
+Everything below has since been built. This document is kept as the original review of
+`252e301` — the findings, the reasoning and the roadmap as they stood before any of it was
+fixed — so it is deliberately written in the present tense about a version of the game that
+no longer exists. `README.md` describes what the game actually does now.
+
+All sixteen findings are fixed and every row of the "Suggested order" table at the bottom is
+shipped: redraw in place, smoke tests, sound and speech, the polish pass, the star shop, the
+task engine, and the content — 19 skills across 45 factories, seven interaction templates,
+20 things to buy. The suite is 36 tests.
+
+---
+
 ## Summary
 
 `npm run build` is clean and the art has a consistent, sunny personality that suits

@@ -183,3 +183,22 @@ test('the new templates can each be solved in the game', async ({ page }) => {
     game.expectNoErrors();
   }
 });
+
+test('reading tasks show pictures, not the same word twice', async ({ page }) => {
+  const game = await Game.openWithSave(page, {
+    settings: { mode: 'laer', matematik: false, dansk: true, speak: false, sound: false, music: false },
+    skills: Game.focusSkill('ordlæsning'),
+  });
+  await game.start();
+  await game.enter('kitchen');
+
+  // selecting a recipe and adding an ingredient is the kitchen's reward action
+  await game.tap(AT.kitchen.recipe1.x, AT.kitchen.recipe1.y);
+  await game.tap(AT.kitchen.ingredient1.x, AT.kitchen.ingredient1.y);
+
+  expect(await game.waitForTask(), 'a reading task should appear').toBe(true);
+  const solved = await game.solveTask();
+  expect(solved.skill).toBe('ordlæsning');
+  expect(solved.template, 'level 1 reads a word and picks the picture').toBe('pick-image');
+  game.expectNoErrors();
+});

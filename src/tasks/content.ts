@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { DRAWABLE_NOUNS } from './figures';
 import { Figure, SKILLS, SkillId, Task, TaskFactory } from './types';
 
 /**
@@ -278,18 +279,18 @@ const danskFactories: TaskFactory[] = [
     },
   },
   {
-    skill: 'ordlæsning', level: 1, areas: ['kitchen', 'pool'],
+    skill: 'ordlæsning', level: 1, areas: ['kitchen', 'pool', 'rooms'],
     make: () => {
-      const letter = pick(LETTERS);
-      const word = pick(LETTER_WORDS[letter]);
-      const others = Phaser.Utils.Array.Shuffle(LETTERS.filter(l => l !== letter))
-        .slice(0, 2)
-        .map(l => pick(LETTER_WORDS[l]));
-      // Level 1 is word *matching* — the word is on show and the child finds it again.
-      // Level 2 below is real reading: the answer is only findable by reading the sentence.
+      // Word to *picture*. Matching a written word against the same written word only
+      // tests visual discrimination; reading it and finding the thing is the real skill.
+      const [answer, ...rest] = Phaser.Utils.Array.Shuffle([...DRAWABLE_NOUNS]);
+      const { options, answer: index } = figureOptions(
+        { kind: 'noun', noun: answer },
+        rest.slice(0, 2).map(n => ({ kind: 'noun', noun: n }) as Figure)
+      );
       return task('ordlæsning', 1,
-        `Find ordet "${word}" på indkøbssedlen.`,
-        { template: 'pick-one', options: options(word, others), answer: word });
+        `Gæsten har skrevet "${answer}". Tryk på billedet.`,
+        { template: 'pick-image', options, answer: index });
     },
   },
   {

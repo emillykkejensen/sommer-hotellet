@@ -68,7 +68,9 @@ export type Figure =
   /** An analog clock. A fractional hour puts the minute hand on the half. */
   | { kind: 'clock'; hour: number }
   | { kind: 'towel'; size: 1 | 2 | 3 }
-  | { kind: 'letter'; text: string };
+  | { kind: 'letter'; text: string }
+  /** A drawn everyday object, for matching a written word to a picture. */
+  | { kind: 'noun'; noun: string };
 
 export type TaskBody =
   /** Tap the icon exactly `target` times. */

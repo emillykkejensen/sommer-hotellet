@@ -15,6 +15,20 @@ export interface ShopItem {
   draw: (scene: Phaser.Scene) => Phaser.GameObjects.Container;
 }
 
+/**
+ * Something that changes the hotel rather than decorating it — a fourth room, a new look
+ * for the rooms. These are the second tier of the star sink: once the nine decorations are
+ * bought there is still something worth saving for.
+ */
+export interface ShopUpgrade {
+  id: string;
+  name: string;
+  blurb: string;
+  cost: number;
+  /** Preview drawing, shown on the shop card. */
+  draw: (scene: Phaser.Scene) => Phaser.GameObjects.Container;
+}
+
 /* ---------------------------------------------------------------- pieces --- */
 
 function cat(scene: Phaser.Scene): Phaser.GameObjects.Container {
@@ -302,3 +316,96 @@ export const SHOP_ITEMS: ShopItem[] = [
 export function itemsFor(area: Area): ShopItem[] {
   return SHOP_ITEMS.filter(i => i.area === area);
 }
+
+/* ---------------------------------------------------------------- upgrades --- */
+
+function fourthRoomPreview(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+
+  // three keys on hooks, and a fourth hook waiting
+  for (let i = 0; i < 4; i++) {
+    const x = -33 + i * 22;
+    g.fillStyle(COLORS.stoneDeep);
+    g.fillCircle(x, -22, 2.5);
+    if (i < 3) {
+      g.fillStyle(COLORS.sunDeep);
+      g.fillCircle(x, -10, 7);
+      g.fillStyle(COLORS.sun);
+      g.fillCircle(x, -11, 5.5);
+      g.fillStyle(COLORS.sunDeep);
+      g.fillRect(x - 1.2, -4, 2.4, 11);
+      g.fillRect(x - 1.2, 3, 5, 2);
+    } else {
+      g.lineStyle(2, COLORS.roof, 0.9);
+      g.strokeCircle(x, -10, 7);
+      g.lineBetween(x - 4, 2, x + 4, 2);
+      g.lineBetween(x, -2, x, 6);
+    }
+  }
+
+  g.fillStyle(COLORS.woodDeep);
+  g.fillRoundedRect(-46, 12, 92, 9, 4);
+  c.add(g);
+  return c;
+}
+
+function themePreview(themeIndex: number, wall: number, accent: number, duvet: number) {
+  return (scene: Phaser.Scene): Phaser.GameObjects.Container => {
+    const c = scene.add.container(0, 0);
+    const g = scene.add.graphics();
+
+    // a little room: wall, floor, bed
+    g.fillStyle(wall);
+    g.fillRoundedRect(-42, -30, 84, 44, 5);
+    g.fillStyle(COLORS.white, 0.3);
+    for (let i = 0; i < 5; i++) g.fillRect(-42 + i * 18, -30, 8, 44);
+    g.fillStyle(COLORS.woodDeep);
+    g.fillRoundedRect(-42, 14, 84, 16, { tl: 0, tr: 0, bl: 5, br: 5 });
+    g.fillStyle(COLORS.wood);
+    g.fillRect(-40, 16, 80, 12);
+
+    g.fillStyle(COLORS.woodDeep);
+    g.fillRoundedRect(-26, -2, 52, 18, 4);
+    g.fillStyle(duvet);
+    g.fillRoundedRect(-16, -4, 42, 16, 4);
+    g.fillStyle(COLORS.white);
+    g.fillRoundedRect(-26, -4, 14, 13, 4);
+    g.fillStyle(accent);
+    g.fillCircle(28, -20, 6);
+
+    c.add(g);
+    c.setData('theme', themeIndex);
+    return c;
+  };
+}
+
+export const SHOP_UPGRADES: ShopUpgrade[] = [
+  {
+    id: 'theme-desert',
+    name: 'Ørken-tema',
+    blurb: 'Et nyt look til værelserne',
+    cost: 22,
+    draw: themePreview(3, 0xFBEFD9, COLORS.orange, 0xF3CE93),
+  },
+  {
+    id: 'theme-night',
+    name: 'Stjernenat-tema',
+    blurb: 'Et nyt look til værelserne',
+    cost: 26,
+    draw: themePreview(4, 0xE4E3F5, COLORS.purple, 0xC6BDE8),
+  },
+  {
+    id: 'room4',
+    name: 'Fjerde værelse',
+    blurb: 'Plads til en gæst mere',
+    cost: 32,
+    draw: fourthRoomPreview,
+  },
+];
+
+/** Which theme index each theme upgrade unlocks. */
+export const THEME_UNLOCKS: { id: string; theme: number }[] = [
+  { id: 'theme-desert', theme: 3 },
+  { id: 'theme-night', theme: 4 },
+];

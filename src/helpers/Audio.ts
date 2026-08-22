@@ -14,6 +14,9 @@ import { gameState } from '../state/GameState';
 class Audio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  private musicBus: GainNode | null = null;
+  private musicTimer: ReturnType<typeof setTimeout> | null = null;
+  private musicStep = 0;
   private broken = false;
 
   private ensure(): AudioContext | null {
@@ -43,6 +46,13 @@ class Audio {
         gain.connect(limiter);
         limiter.connect(this.ctx.destination);
         this.master = gain;
+
+        // Music sits on its own bus, well under the effects, so a chord never competes
+        // with the sound of a job being finished.
+        const music = this.ctx.createGain();
+        music.gain.value = 0.34;
+        music.connect(gain);
+        this.musicBus = music;
       } catch {
         this.broken = true;
         return null;
@@ -57,6 +67,19 @@ class Audio {
   unlock(): void {
     if (!gameState.settings.sound) return;
     this.ensure();
+    this.syncMusic();
+  }
+
+  /** Starts or stops the background music to match the settings. */
+  syncMusic(): void {
+    const wanted = gameState.settings.sound && gameState.settings.music;
+    if (wanted && !this.musicTimer) this.startMusic();
+    else if (!wanted && this.musicTimer) this.stopMusic();
+  }
+
+  stopMusic(): void {
+    if (this.musicTimer) clearTimeout(this.musicTimer);
+    this.musicTimer = null;
   }
 
   available(): boolean {
@@ -134,6 +157,81 @@ class Audio {
     biquad.connect(gain);
     gain.connect(this.master);
     source.start(t);
+  }
+
+  /* ---------------------------------------------------------------------- music --- */
+
+  /**
+   * A slow ambient bed rather than a tune.
+   *
+   * A looping melody in a game a child replays for weeks becomes unbearable for whoever
+   * else is in the room, so this is generative: a warm pad moving through four chords, with
+   * occasional single notes from the same pentatonic set. It never repeats exactly and it
+   * has no hook to get stuck in anyone's head.
+   */
+  private startMusic(): void {
+    const ctx = this.ensure();
+    if (!ctx || !this.musicBus) return;
+
+    // A major pentatonic set; every chord below is drawn from it, so nothing can clash.
+    const CHORDS = [
+      [220.0, 277.2, 329.6],  // A  C# E
+      [246.9, 293.7, 370.0],  // B  D  F#
+      [164.8, 220.0, 277.2],  // E  A  C#
+      [196.0, 246.9, 293.7],  // G  B  D
+    ];
+    const SPARKLE = [659.3, 740.0, 880.0, 987.8, 1108.7];
+
+    const bar = 9.5;
+
+    const playBar = () => {
+      const now = ctx.currentTime;
+      const chord = CHORDS[this.musicStep % CHORDS.length];
+      this.musicStep++;
+
+      for (const freq of chord) {
+        // two slightly detuned voices per note give the pad some movement
+        for (const detune of [-3, 3]) {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          osc.detune.value = detune;
+
+          // long fade in and out, so chords cross over rather than change
+          gain.gain.setValueAtTime(0.0001, now);
+          gain.gain.linearRampToValueAtTime(0.075, now + bar * 0.35);
+          gain.gain.linearRampToValueAtTime(0.0001, now + bar);
+
+          osc.connect(gain);
+          gain.connect(this.musicBus!);
+          osc.start(now);
+          osc.stop(now + bar + 0.1);
+        }
+      }
+
+      // one or two soft notes over the chord, at unpredictable moments
+      const notes = Math.random() < 0.45 ? 2 : 1;
+      for (let i = 0; i < notes; i++) {
+        const at = now + 1 + Math.random() * (bar - 2.5);
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.value = SPARKLE[Math.floor(Math.random() * SPARKLE.length)];
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(0.05, at + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + 1.6);
+        osc.connect(gain);
+        gain.connect(this.musicBus!);
+        osc.start(at);
+        osc.stop(at + 1.7);
+      }
+
+      // schedule the next bar slightly early so the fades overlap
+      this.musicTimer = setTimeout(playBar, (bar - 1.2) * 1000);
+    };
+
+    playBar();
   }
 
   /* --------------------------------------------------------------------- sounds --- */

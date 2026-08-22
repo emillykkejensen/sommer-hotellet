@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { COLORS, INK, INK_SOFT, ROOM_THEMES, SIZE, text } from '../config';
-import { Chore, gameState, ROOM_COUNT } from '../state/GameState';
+import { Chore, gameState } from '../state/GameState';
+import { THEME_UNLOCKS } from '../state/Shop';
 import { showCheckmark, showSparkle, showStarBurst, showToast } from '../objects/FeedbackEffects';
 import { addBackButton, addStarCounter } from '../ui/Chrome';
 import { rewardFor } from '../helpers/Reward';
@@ -67,8 +68,8 @@ export class RoomScene extends BaseScene {
 
   protected buildDynamic(): void {
     const { width, height } = this.scale;
-    const theme = ROOM_THEMES[this.currentRoom];
     const room = gameState.rooms[this.currentRoom];
+    const theme = ROOM_THEMES[room.theme] ?? ROOM_THEMES[0];
 
     // wall — sits in the dynamic layer because its tint follows the selected room
     const wall = this.add.graphics();
@@ -87,6 +88,10 @@ export class RoomScene extends BaseScene {
 
     this.dyn(this.add.text(width / 2, 78, `Rum ${this.currentRoom + 1} · ${theme.name}`,
       text(SIZE.heading, INK_SOFT, 'bold')).setOrigin(0.5));
+
+    // to the right of the room name, so the swatches are not mistaken for another
+    // row of progress dots
+    this.buildThemePicker(width - 132, 78);
 
     const specs = this.choreSpecs(theme);
     for (const spec of specs) {
@@ -185,12 +190,13 @@ export class RoomScene extends BaseScene {
 
   private buildRoomTabs(): void {
     const { width } = this.scale;
-    for (let i = 0; i < ROOM_COUNT; i++) {
+    const rooms = gameState.roomCount;
+    for (let i = 0; i < rooms; i++) {
       const isActive = i === this.currentRoom;
-      const theme = ROOM_THEMES[i];
+      const theme = ROOM_THEMES[gameState.rooms[i].theme] ?? ROOM_THEMES[0];
       const w = 96;
       const h = 34;
-      const x = width / 2 - 104 + i * 104;
+      const x = width / 2 + (i - (rooms - 1) / 2) * 104;
 
       const c = this.add.container(x, 38);
       const g = this.add.graphics();
@@ -222,6 +228,41 @@ export class RoomScene extends BaseScene {
         });
       }
     }
+  }
+
+  /**
+   * Swatches for the room's look. Hidden until a theme has been bought — three fixed
+   * choices per room is not a decision worth putting on screen.
+   */
+  private buildThemePicker(cx: number, y: number): void {
+    const unlocked = gameState.unlockedThemes(THEME_UNLOCKS);
+    if (unlocked.length <= 3) return;
+
+    const current = gameState.rooms[this.currentRoom].theme;
+    const spacing = 34;
+
+    unlocked.forEach((themeIndex, i) => {
+      const theme = ROOM_THEMES[themeIndex];
+      if (!theme) return;
+      const x = cx + (i - (unlocked.length - 1) / 2) * spacing;
+      const chosen = themeIndex === current;
+
+      const c = this.add.container(x, y);
+      const g = this.add.graphics();
+      if (chosen) shadow(g, -13, -13, 26, 26, 13, 2, 0.2);
+      g.fillStyle(theme.accent);
+      g.fillCircle(0, 0, chosen ? 13 : 10);
+      g.lineStyle(chosen ? 3 : 1.5, COLORS.white, chosen ? 1 : 0.7);
+      g.strokeCircle(0, 0, chosen ? 13 : 10);
+      c.add(g);
+      this.dyn(c);
+
+      if (chosen) return;
+      tappable(this, c, 30, 30, () => {
+        gameState.setRoomTheme(this.currentRoom, themeIndex);
+        this.refresh();
+      });
+    });
   }
 
   private buildGuestBar(guestId: number): void {

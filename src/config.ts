@@ -96,10 +96,16 @@ export function text(
   return { fontFamily: FONT, fontSize: `${size}px`, color, fontStyle: WEIGHTS[weight] };
 }
 
+/**
+ * Room looks. The first three ship with the hotel; the rest are unlocked in the shop, so
+ * the order here is also the unlock order and must stay stable — saves store the index.
+ */
 export const ROOM_THEMES = [
   { name: 'Solskin', wall: COLORS.wallPink, accent: COLORS.pink, duvet: 0xF6B9C6, cushion: 0xF2A0B5 },
   { name: 'Havet', wall: COLORS.wallBlue, accent: COLORS.water, duvet: 0x9AD3EC, cushion: 0x62B6DE },
   { name: 'Skoven', wall: COLORS.wallGreen, accent: COLORS.green, duvet: 0xB4DBA5, cushion: 0x7CBE6A },
+  { name: 'Ørkenen', wall: 0xFBEFD9, accent: COLORS.orange, duvet: 0xF3CE93, cushion: 0xE8A863 },
+  { name: 'Stjernenat', wall: 0xE4E3F5, accent: COLORS.purple, duvet: 0xC6BDE8, cushion: 0x9B8ACC },
 ];
 
 /** Shared depths so effects always draw above a refreshed layer. */

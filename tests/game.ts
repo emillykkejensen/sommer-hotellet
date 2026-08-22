@@ -329,8 +329,14 @@ export class Game {
       case 'count-taps': {
         const icon = inBody.find(h => h.label === null && h.w >= 100);
         if (!icon) throw new Error('count-taps icon missing');
-        const taps = correct ? body.target : body.target + 1;
-        for (let i = 0; i < taps; i++) await this.tap(icon.x, icon.y);
+        if (!correct) {
+          // Overshooting is only reachable by tapping again inside the ~260ms window
+          // before the target's success fires — a real child can do it, a test that waits
+          // for the game to settle cannot. Pin such a test to a template with a genuine
+          // wrong answer instead.
+          throw new Error('count-taps has no deterministic wrong answer');
+        }
+        for (let i = 0; i < body.target; i++) await this.tap(icon.x, icon.y);
         return;
       }
       case 'number-pad': {
@@ -414,9 +420,9 @@ export class Game {
 
   /* ------------------------------------------------------------ helpers --- */
 
-  /** Finds a shop card by the item name printed on it. */
-  async shopCard(name: string): Promise<{ x: number; y: number }> {
-    const card = await this.page.evaluate((itemName) => {
+  /** Finds a shop card by the item name printed on it. Works on either shelf. */
+  async shopCard(name: string, cardWidth = 168): Promise<{ x: number; y: number }> {
+    const card = await this.page.evaluate(([itemName, width]) => {
       const scene = window.__game.scene.getScene('ShopScene') as any;
       const found: any[] = [];
       const walk = (objs: any[], ox: number, oy: number) => {
@@ -424,7 +430,7 @@ export class Game {
           if (!o) continue;
           const x = ox + (o.x || 0);
           const y = oy + (o.y || 0);
-          if (o.input && o.input.hitArea?.width === 168) {
+          if (o.input && o.input.hitArea?.width === width) {
             const labels = (o.list || [])
               .filter((c: any) => c.type === 'Text')
               .map((c: any) => c.text);
@@ -435,7 +441,7 @@ export class Game {
       };
       walk(scene.children.list, 0, 0);
       return found[0] ?? null;
-    }, name);
+    }, [name, cardWidth] as const);
     if (!card) throw new Error(`shop card not found: ${name}`);
     return card;
   }
@@ -469,16 +475,17 @@ export class Game {
       version: 3,
       stars: 0,
       guests: [],
-      rooms: Array.from({ length: 3 }, () => ({
+      rooms: Array.from({ length: 3 }, (_, i) => ({
         bedMade: false, curtainsOpen: false, flowersPlaced: false,
-        vacuumed: false, towelsFolded: false, guestId: null,
+        vacuumed: false, towelsFolded: false, guestId: null, theme: i,
       })),
       kitchen: { recipe: null, added: [], showingDining: false, dishesServed: 0 },
       pool: { towels: [false, false, false, false] },
       garden: { flowers: [false, false, false, false, false], sandcastle: 0, apples: [false, false, false, false, false] },
       nextGuestId: 0,
       owned: [],
-      settings: { mode: 'leg', matematik: true, dansk: true, speak: false },
+      // music off by default in tests: a continuous pad would pollute the audio counts
+      settings: { mode: 'leg', matematik: true, dansk: true, speak: false, sound: true, music: false },
       skills: {},
       ...patch,
     });
@@ -552,13 +559,16 @@ export const AT = {
   },
 
   shop: { x: GAME_WIDTH - 74, y: 84 },
+  shopTabThings: { x: GAME_WIDTH / 2 - 95, y: 140 },
+  shopTabHotel: { x: GAME_WIDTH / 2 + 95, y: 140 },
   settings: { x: 52, y: 84 },
   settingsModeLaer: { x: GAME_WIDTH / 2 + 158, y: 158 },
   settingsModeLeg: { x: GAME_WIDTH / 2 - 158, y: 158 },
 
   // the toggle grid, laid out 2x2
-  toggleMath: { x: GAME_WIDTH / 2 - 134, y: 250 },
-  toggleDansk: { x: GAME_WIDTH / 2 + 134, y: 250 },
-  toggleSound: { x: GAME_WIDTH / 2 - 134, y: 306 },
-  toggleSpeak: { x: GAME_WIDTH / 2 + 134, y: 306 },
+  toggleMath: { x: GAME_WIDTH / 2 - 134, y: 236 },
+  toggleDansk: { x: GAME_WIDTH / 2 + 134, y: 236 },
+  toggleSound: { x: GAME_WIDTH / 2 - 134, y: 286 },
+  toggleSpeak: { x: GAME_WIDTH / 2 + 134, y: 286 },
+  toggleMusic: { x: GAME_WIDTH / 2 - 134, y: 336 },
 } as const;

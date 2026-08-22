@@ -16,6 +16,8 @@ export interface RoomState {
   vacuumed: boolean;
   towelsFolded: boolean;
   guestId: number | null;
+  /** Index into ROOM_THEMES. Extra themes are unlocked in the shop. */
+  theme: number;
 }
 
 export interface KitchenState {
@@ -54,12 +56,15 @@ export interface Settings {
   dansk: boolean;
   speak: boolean;
   sound: boolean;
+  music: boolean;
 }
 
 const SAVE_KEY = 'sommer-hotellet-save';
 const SAVE_VERSION = 3;
 
-export const ROOM_COUNT = 3;
+/** Rooms the hotel starts with. The fourth is a shop upgrade. */
+export const BASE_ROOM_COUNT = 3;
+export const MAX_ROOM_COUNT = 4;
 export const LOUNGER_COUNT = 4;
 export const FLOWER_COUNT = 5;
 export const APPLE_COUNT = 5;
@@ -98,15 +103,20 @@ class GameState {
 
   // ---------- factories ----------
 
-  private freshRooms(): RoomState[] {
-    return Array.from({ length: ROOM_COUNT }, () => ({
+  private freshRooms(count = BASE_ROOM_COUNT): RoomState[] {
+    return Array.from({ length: count }, (_, i) => this.freshRoom(i));
+  }
+
+  private freshRoom(index: number): RoomState {
+    return {
       bedMade: false,
       curtainsOpen: false,
       flowersPlaced: false,
       vacuumed: false,
       towelsFolded: false,
       guestId: null,
-    }));
+      theme: index % BASE_ROOM_COUNT,
+    };
   }
 
   private freshKitchen(): KitchenState {
@@ -126,13 +136,39 @@ class GameState {
   }
 
   private freshSettings(): Settings {
-    return { mode: 'leg', matematik: true, dansk: true, speak: true, sound: true };
+    return { mode: 'leg', matematik: true, dansk: true, speak: true, sound: true, music: true };
   }
 
   // ---------- shop ----------
 
   owns(itemId: string): boolean {
     return this.owned.includes(itemId);
+  }
+
+  /** How many rooms the hotel has, counting the upgrade. */
+  get roomCount(): number {
+    return this.rooms.length;
+  }
+
+  /** Adds the room the fourth-room upgrade paid for. */
+  private growRooms(): void {
+    while (this.rooms.length < MAX_ROOM_COUNT && this.owns('room4')) {
+      this.rooms.push(this.freshRoom(this.rooms.length));
+    }
+  }
+
+  /** Themes unlocked for the rooms: the three built in, plus anything bought. */
+  unlockedThemes(extras: { id: string; theme: number }[]): number[] {
+    const base = Array.from({ length: BASE_ROOM_COUNT }, (_, i) => i);
+    const bought = extras.filter(e => this.owns(e.id)).map(e => e.theme);
+    return [...base, ...bought];
+  }
+
+  setRoomTheme(roomIndex: number, theme: number): void {
+    const room = this.rooms[roomIndex];
+    if (!room || room.theme === theme) return;
+    room.theme = theme;
+    this.save();
   }
 
   canAfford(cost: number): boolean {
@@ -144,6 +180,8 @@ class GameState {
     if (this.owns(itemId) || this.stars < cost) return false;
     this.stars -= cost;
     this.owned.push(itemId);
+    // an upgrade may change the hotel itself, not just decorate it
+    this.growRooms();
     this.save();
     return true;
   }
@@ -159,7 +197,7 @@ class GameState {
     this.save();
   }
 
-  toggleSetting(key: 'matematik' | 'dansk' | 'speak' | 'sound'): void {
+  toggleSetting(key: 'matematik' | 'dansk' | 'speak' | 'sound' | 'music'): void {
     // Never leave both subjects off — there would be nothing to ask.
     if ((key === 'matematik' || key === 'dansk') && this.settings[key]) {
       const other = key === 'matematik' ? 'dansk' : 'matematik';
@@ -429,7 +467,16 @@ class GameState {
     this.owned = Array.isArray(data.owned) ? (data.owned as string[]) : [];
     this.settings = { ...this.freshSettings(), ...(data.settings as Settings | undefined) };
     this.skills = (data.skills as Record<string, SkillProgress>) ?? {};
-    this.rooms = rooms?.length === ROOM_COUNT ? rooms : this.freshRooms();
+    // A save may predate the fourth-room upgrade, or carry rooms without a theme.
+    this.rooms = Array.isArray(rooms) && rooms.length >= BASE_ROOM_COUNT
+      && rooms.length <= MAX_ROOM_COUNT
+      ? rooms.map((room, i) => ({ ...this.freshRoom(i), ...room }))
+      : this.freshRooms();
+    this.growRooms();
+
+    // Write the normalised shape straight back, so a migration runs once rather than on
+    // every boot and the file on disk always matches what the game is holding.
+    this.save();
     this.kitchen = { ...this.freshKitchen(), ...kitchen };
     this.pool = pool?.towels?.length === LOUNGER_COUNT ? pool : this.freshPool();
     this.garden = garden?.flowers?.length === FLOWER_COUNT && garden.apples?.length === APPLE_COUNT

@@ -55,8 +55,12 @@ test('Lær mode raises a task, and solving it pays and records the skill', async
 });
 
 test('a wrong answer never ends the task and still pays', async ({ page }) => {
+  // Pinned to the pattern template, which has a genuine wrong answer. Counting tasks
+  // succeed the moment the target is reached, so "answer it wrong" is not a state a
+  // settled test can reach there.
   const game = await Game.openWithSave(page, {
     settings: { mode: 'laer', matematik: true, dansk: true, speak: false },
+    skills: Game.focusSkill('mønstre'),
   });
   await game.start();
   await game.enter('garden');
@@ -201,5 +205,97 @@ test('turning both subjects off leaves at least one on', async ({ page }) => {
   await game.tap(AT.toggleDansk.x, AT.toggleDansk.y);
   const save = await game.save();
   expect(save.settings.dansk, 'the last subject cannot be switched off').toBe(true);
+  game.expectNoErrors();
+});
+
+/**
+ * The second tier of the star sink: upgrades that change the hotel rather than decorate it.
+ */
+
+test('the fourth room upgrade adds a real room everywhere', async ({ page }) => {
+  const game = await Game.openWithSave(page, { stars: 40 });
+  await game.start();
+
+  // three rooms to begin with
+  await game.enter('rooms');
+  await game.expectScreen('RoomScene').not.toContain('Rum 4');
+  await game.leave();
+
+  await game.tap(AT.shop.x, AT.shop.y);
+  await game.waitForScene('ShopScene');
+  await game.tap(AT.shopTabHotel.x, AT.shopTabHotel.y);
+
+  const room4 = await game.shopCard('Fjerde værelse', 224);
+  await game.tap(room4.x, room4.y);
+
+  await game.expectSave(s => s.owned, 'the upgrade is recorded').toContain('room4');
+  await game.expectSave(s => s.rooms.length, 'the hotel actually gains a room').toBe(4);
+  await game.expectSave(s => s.stars, 'it costs 32 stars').toBe(8);
+
+  // and it shows up in both scenes that care about the room count
+  await game.tap(AT.back.x, AT.back.y);
+  await game.waitForScene('HotelMapScene');
+  await game.enter('rooms');
+  await game.expectScreen('RoomScene', 'a fourth tab').toContain('Rum 4');
+  await game.leave();
+  await game.enter('lobby');
+  await game.expectScreen('LobbyScene', 'a fourth key on the board').toContain('4');
+  game.expectNoErrors();
+});
+
+test('a bought theme becomes selectable in the rooms', async ({ page }) => {
+  const game = await Game.openWithSave(page, { stars: 30 });
+  await game.start();
+
+  // no picker while there is nothing to pick
+  await game.enter('rooms');
+  await game.expectScreen('RoomScene').toContain('Rum 1 · Solskin');
+  await game.leave();
+
+  await game.tap(AT.shop.x, AT.shop.y);
+  await game.waitForScene('ShopScene');
+  await game.tap(AT.shopTabHotel.x, AT.shopTabHotel.y);
+  const desert = await game.shopCard('Ørken-tema', 224);
+  await game.tap(desert.x, desert.y);
+  await game.expectSave(s => s.owned).toContain('theme-desert');
+
+  await game.tap(AT.back.x, AT.back.y);
+  await game.waitForScene('HotelMapScene');
+  await game.enter('rooms');
+
+  // Swatches are centred on x = width - 132 and spaced 34 apart; with the three built-in
+  // themes plus the one just bought there are four, and the new one is last.
+  const swatchAt = (index: number, count: number) => ({
+    x: 960 - 132 + (index - (count - 1) / 2) * 34,
+    y: 78,
+  });
+  const swatch = swatchAt(3, 4);
+  await game.tap(swatch.x, swatch.y);
+  await game.expectSave(s => s.rooms[0].theme, 'the room keeps its new look').toBe(3);
+  await game.expectScreen('RoomScene').toContain('Rum 1 · Ørkenen');
+
+  // and only that room changed
+  expect((await game.save()).rooms[1].theme).toBe(1);
+  game.expectNoErrors();
+});
+
+test('an older save without themes or a fourth room still loads', async ({ page }) => {
+  // a version 3 save written before either upgrade existed
+  const game = await Game.openWithSave(page, {
+    stars: 5,
+    rooms: [
+      { bedMade: true, curtainsOpen: false, flowersPlaced: false, vacuumed: false, towelsFolded: false, guestId: null },
+      { bedMade: false, curtainsOpen: false, flowersPlaced: false, vacuumed: false, towelsFolded: false, guestId: null },
+      { bedMade: false, curtainsOpen: false, flowersPlaced: false, vacuumed: false, towelsFolded: false, guestId: null },
+    ],
+  });
+  await game.start();
+  await game.enter('rooms');
+
+  // the chore it had done survives, and every room gets a theme
+  await game.expectScreen('RoomScene').toContain('Sengen er redt');
+  const save = await game.save();
+  expect(save.rooms).toHaveLength(3);
+  expect(save.rooms.map((r: any) => r.theme)).toEqual([0, 1, 2]);
   game.expectNoErrors();
 });

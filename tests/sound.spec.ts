@@ -101,3 +101,44 @@ test('a task plays feedback for both a right and a wrong answer', async ({ page 
     .toBeGreaterThan(wrong.sources);
   game.expectNoErrors();
 });
+
+test('the music plays on its own bus and can be switched off alone', async ({ page }) => {
+  const game = await Game.openWithSave(page, {
+    settings: { mode: 'leg', matematik: true, dansk: true, speak: false, sound: true, music: true },
+  });
+
+  // nothing before the first gesture, music included
+  expect((await game.audioTally()).contexts).toBe(0);
+
+  await game.start();
+  // the pad is six voices per bar, so unlocking should produce more than a lone tap
+  const afterUnlock = await game.audioTally();
+  expect(afterUnlock.oscillators, 'the pad should start with the first tap').toBeGreaterThan(3);
+
+  // turning music off leaves effects working
+  await game.tap(AT.settings.x, AT.settings.y);
+  await game.waitForScene('SettingsScene');
+  await game.tap(AT.toggleMusic.x, AT.toggleMusic.y);
+  await game.expectSave(s => s.settings.music, 'the choice persists').toBe(false);
+  expect((await game.save()).settings.sound, 'effects stay on').toBe(true);
+
+  await game.tap(AT.back.x, AT.back.y);
+  await game.waitForScene('HotelMapScene');
+  await game.enter('lobby');
+
+  const rung = await game.countingSounds(() => game.tap(AT.lobby.bell.x, AT.lobby.bell.y));
+  expect(rung.sources, 'the bell still rings with music off').toBeGreaterThan(1);
+  game.expectNoErrors();
+});
+
+test('music stays silent when all sound is off', async ({ page }) => {
+  const game = await Game.openWithSave(page, {
+    settings: { mode: 'leg', matematik: true, dansk: true, speak: false, sound: false, music: true },
+  });
+  await game.start();
+  await game.enter('garden');
+
+  // sound off is the master switch: music must not build a context behind it
+  expect((await game.audioTally()).contexts, 'no context at all').toBe(0);
+  game.expectNoErrors();
+});

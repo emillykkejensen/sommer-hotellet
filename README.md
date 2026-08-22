@@ -152,7 +152,7 @@ level, so a child never runs out and never sees the same numbers twice running:
 | `tallinje` | 1–2 | adjust (pool thermometer) |
 | `bogstavlyd` | 1–3 | pick-one |
 | `rim` | 1–2 | pick-one |
-| `ordlæsning` | 1–2 | pick-one (level 1 matches, level 2 reads a sentence) |
+| `ordlæsning` | 1–2 | pick-image (word to picture), pick-one (reads a sentence) |
 | `stavelser` | 1–2 | count-taps (clap the name) |
 | `alfabet` | 1–2 | put-in-order (letters) |
 | `forlyd` | 1–2 | pick-one |
@@ -172,7 +172,10 @@ Seven interaction templates cover all of it:
 
 `pick-image` exists because some answers cannot be words without giving themselves away —
 a shape task whose options read "cirkel" and "trekant" tests reading, not shapes. Those
-options are described as `Figure` values and drawn by `tasks/figures.ts`.
+options are described as `Figure` values and drawn by `tasks/figures.ts`, which also holds
+the eight drawable nouns (`sol`, `hus`, `kat`, `fisk`, `is`, `blomst`, `nøgle`, `kop`) that
+let a reading task show a picture rather than the same word twice. The list is short
+because every entry has to be unmistakable at 128px.
 
 `adjust` covers the thermometer and the clock with one mechanic, because both are the same
 idea: move a number to where it should be. It has no wrong answer — the dial is either
@@ -190,7 +193,7 @@ Difficulty moves on its own: three right in a row promotes, two wrong demotes
 wrong option off the board. The child always finishes and always leaves with at least one
 star; only a first-try answer counts as mastery for the level machinery.
 
-### Sound
+### Sound and music
 
 `helpers/Audio.ts` synthesises everything with Web Audio — no files, so nothing to
 download or license. Each sound is built from two primitives, a shaped `note()` and a
@@ -216,6 +219,15 @@ Two rules worth keeping:
 `tap()` fires from `button()` and `tappable()`, so every control is acknowledged without
 each scene wiring it up. Mute lives in settings and is persisted.
 
+The background music is **generative, not a loop**. A tune a child replays for weeks becomes
+unbearable for whoever else is in the room, so instead a warm pad moves through four chords
+drawn from one pentatonic set, with occasional single notes over the top. It never repeats
+exactly and has no hook to get stuck in anyone's head. It sits on its own gain bus well
+under the effects, has its own toggle, and `sound` is the master switch above it.
+
+Tests seed `music: false`, because a continuous pad would show up in the Web Audio node
+counts that the sound tests assert on.
+
 ### Read-aloud
 
 `helpers/Speech.ts` speaks every prompt in Danish via `speechSynthesis`. If no `da-*` voice
@@ -224,8 +236,10 @@ screen hides the toggle when the browser cannot speak at all.
 
 ### The shop
 
-`state/Shop.ts` is the catalogue. Each item owns both its drawing and its spot in its
-scene, so the same function renders the shop preview and the real thing:
+`state/Shop.ts` is the catalogue, on two shelves.
+
+**Ting** are decorations. Each owns both its drawing and its spot in its scene, so the same
+function renders the shop preview and the real thing:
 
 ```ts
 { id: 'birdbath', name: 'Fuglebad', cost: 11, area: 'garden',
@@ -234,6 +248,20 @@ scene, so the same function renders the shop preview and the real thing:
 
 Scenes call `placeDecorations(this, 'garden', this.dynamic)` in their `buildDynamic()`, so
 bought pieces come back on every refresh with no per-scene bookkeeping.
+
+**Hotellet** are upgrades that change the game rather than dress it: two extra room themes
+(22 and 26 stars) and a fourth room (32). They exist because nine decorations is a sink
+with a bottom — once they are all bought, stars pile up again.
+
+The fourth room means the room count is no longer a constant. `BASE_ROOM_COUNT` is what the
+hotel ships with, `gameState.roomCount` is what it actually has, and both the room tabs and
+the lobby key board size themselves from it. Themes are an index into `ROOM_THEMES` stored
+per room, so **the order of that array is part of the save format** — append, never
+reorder.
+
+`GameState.load()` normalises what it reads (a room without a theme gets one, a save
+predating the upgrade grows if it was bought) and writes the result straight back, so a
+migration runs once rather than on every boot.
 
 ### Reduced motion
 
@@ -289,10 +317,9 @@ fixed wait fires the next click into the old scene.
 
 ## Not done yet
 
-- **The shop is the only sink.** Nine items, and once they are all bought stars accumulate
-  again. A second tier — new room themes, a second floor — would extend the loop.
-- **The Danish side leans on word recognition.** Drawn pictures for every noun would be a
-  lot of art, so `ordlæsning` level 1 matches a written word rather than a picture. Level 2
-  is real sentence reading.
-- **No background music.** Only effects. A quiet loop would suit the setting, but it needs
-  a real composition rather than synthesis.
+- **The star sink still has a bottom.** Nine decorations plus three upgrades. A third tier
+  (a second floor, staff to hire) would extend it further.
+- **Only eight nouns can be drawn.** Reading tasks pick from those; a wider vocabulary needs
+  more art.
+- **No spoken word audio.** Read-aloud uses the device's Danish voice, which is
+  serviceable but flat compared to a recorded one.

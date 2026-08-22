@@ -33,8 +33,8 @@ export class SettingsScene extends BaseScene {
     const { width } = this.scale;
 
     this.buildModeChoice(width / 2, 126);
-    this.buildToggles(width / 2, 250);
-    this.buildProgress(width / 2, 358);
+    this.buildToggles(width / 2, 236);
+    this.buildProgress(width / 2, 384);
     this.buildReset(width / 2, this.scale.height - 40);
   }
 
@@ -86,11 +86,16 @@ export class SettingsScene extends BaseScene {
   /* --------------------------------------------------------------- toggles --- */
 
   private buildToggles(cx: number, y: number): void {
-    const items: { key: 'matematik' | 'dansk' | 'speak' | 'sound'; label: string; available: boolean }[] = [
+    const items: {
+      key: 'matematik' | 'dansk' | 'speak' | 'sound' | 'music';
+      label: string;
+      available: boolean;
+    }[] = [
       { key: 'matematik', label: 'Tal-opgaver', available: true },
       { key: 'dansk', label: 'Dansk-opgaver', available: true },
       { key: 'sound', label: 'Lyd', available: audio.available() },
       { key: 'speak', label: 'Læs op', available: canSpeak() },
+      { key: 'music', label: 'Musik', available: audio.available() },
     ];
 
     // 2x2 — four of these in one row would not fit the panel width
@@ -98,7 +103,7 @@ export class SettingsScene extends BaseScene {
       const on = gameState.settings[item.key] && item.available;
       const w = 250;
       const x = cx + (i % 2 === 0 ? -134 : 134);
-      const rowY = y + Math.floor(i / 2) * 56;
+      const rowY = y + Math.floor(i / 2) * 50;
       const c = this.add.container(x, rowY);
 
       const g = this.add.graphics();
@@ -130,12 +135,14 @@ export class SettingsScene extends BaseScene {
           audio.unlock();
           audio.pop();
         }
+        // sound off silences the music too, and music can be turned off on its own
+        audio.syncMusic();
         this.refresh();
       });
     });
 
     if (!canSpeak()) {
-      this.dyn(this.add.text(cx, y + 118,
+      this.dyn(this.add.text(cx, y + 158,
         'Denne browser kan ikke læse op',
         text(SIZE.tiny, INK_SOFT, 'semibold')).setOrigin(0.5));
     }
@@ -158,7 +165,7 @@ export class SettingsScene extends BaseScene {
 
     // Two columns. The catalogue is 19 skills deep, so this is the most-practised slice
     // rather than the whole list, with a count of what is not shown.
-    const shown = 10;
+    const shown = 8;
     const rows = practised.slice(0, shown);
     rows.forEach(({ skill, progress }, i) => {
       const col = i % 2;

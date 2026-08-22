@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS, INK, text } from '../config';
-import { Figure } from './types';
+import { Figure, IconKind } from './types';
 
 /**
  * Draws an answer option that cannot be written down.
@@ -16,8 +16,279 @@ export function drawFigure(scene: Phaser.Scene, figure: Figure): Phaser.GameObje
     case 'clock': return drawClock(scene, figure.hour);
     case 'towel': return drawTowel(scene, figure.size);
     case 'letter': return drawLetter(scene, figure.text);
+    case 'noun': return drawNoun(scene, figure.noun as DrawableNoun);
   }
 }
+
+/**
+ * The nouns a reading task can show as a picture.
+ *
+ * Word-to-picture is the real reading exercise; matching a written word to the same word
+ * only tests visual discrimination. The list is deliberately short — every entry has to be
+ * drawable and unmistakable at 128px, which rules out most nouns.
+ */
+export const DRAWABLE_NOUNS = ['sol', 'hus', 'kat', 'fisk', 'is', 'blomst', 'nøgle', 'kop'] as const;
+export type DrawableNoun = (typeof DRAWABLE_NOUNS)[number];
+
+function drawNoun(scene: Phaser.Scene, noun: DrawableNoun): Phaser.GameObjects.Container {
+  switch (noun) {
+    case 'nøgle': return drawIcon(scene, 'key', 1.5);
+    case 'kop': return drawIcon(scene, 'cup', 1.5);
+    case 'blomst': return drawIcon(scene, 'flower', 1.4);
+    case 'sol': return drawSunFace(scene);
+    case 'hus': return drawHouse(scene);
+    case 'kat': return drawCatFace(scene);
+    case 'fisk': return drawFish(scene);
+    case 'is': return drawIceCream(scene);
+  }
+}
+
+function drawSunFace(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+  g.fillStyle(COLORS.sun, 0.4);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    g.fillCircle(Math.cos(a) * 38, Math.sin(a) * 38, 7);
+  }
+  g.fillStyle(COLORS.sunDeep);
+  g.fillCircle(0, 2, 26);
+  g.fillStyle(COLORS.sun);
+  g.fillCircle(0, 0, 25);
+  g.fillStyle(COLORS.ink, 0.8);
+  g.fillCircle(-8, -4, 2.6);
+  g.fillCircle(8, -4, 2.6);
+  g.lineStyle(2.4, COLORS.ink, 0.75);
+  g.beginPath();
+  g.arc(0, 3, 9, 0.3, Math.PI - 0.3, false);
+  g.strokePath();
+  c.add(g);
+  return c;
+}
+
+function drawHouse(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+  g.fillStyle(COLORS.wall);
+  g.fillRoundedRect(-30, -8, 60, 44, 4);
+  g.fillStyle(COLORS.wallDeep, 0.5);
+  g.fillRoundedRect(18, -8, 12, 44, { tl: 0, tr: 4, bl: 0, br: 4 });
+  g.fillStyle(COLORS.roofDeep);
+  g.fillTriangle(-38, -8, 38, -8, 0, -42);
+  g.fillStyle(COLORS.roof);
+  g.fillTriangle(-38, -8, 30, -8, -4, -38);
+  g.fillStyle(COLORS.door);
+  g.fillRoundedRect(-8, 14, 17, 22, { tl: 6, tr: 6, bl: 0, br: 0 });
+  g.fillStyle(COLORS.window);
+  g.fillRoundedRect(-24, 2, 13, 12, 3);
+  g.lineStyle(2, COLORS.wallDeep);
+  g.strokeRoundedRect(-24, 2, 13, 12, 3);
+  c.add(g);
+  return c;
+}
+
+function drawCatFace(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+  g.fillStyle(0xE8A863);
+  g.fillTriangle(-24, -30, -8, -6, -30, -4);
+  g.fillTriangle(24, -30, 8, -6, 30, -4);
+  g.fillStyle(0xF2C593);
+  g.fillTriangle(-21, -25, -11, -9, -25, -8);
+  g.fillTriangle(21, -25, 11, -9, 25, -8);
+  g.fillStyle(0xE8A863);
+  g.fillCircle(0, 2, 27);
+  g.fillStyle(COLORS.ink);
+  g.fillEllipse(-10, -3, 5, 8);
+  g.fillEllipse(10, -3, 5, 8);
+  g.fillStyle(COLORS.pink);
+  g.fillTriangle(-4, 8, 4, 8, 0, 13);
+  g.lineStyle(2, COLORS.ink, 0.6);
+  g.beginPath();
+  g.arc(-5, 15, 5, 0, Math.PI, false);
+  g.strokePath();
+  g.beginPath();
+  g.arc(5, 15, 5, 0, Math.PI, false);
+  g.strokePath();
+  g.lineStyle(1.8, COLORS.ink, 0.5);
+  for (const dy of [-2, 2, 6]) {
+    g.lineBetween(-16, dy + 10, -34, dy + 6);
+    g.lineBetween(16, dy + 10, 34, dy + 6);
+  }
+  c.add(g);
+  return c;
+}
+
+function drawFish(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+  g.fillStyle(COLORS.waterDeep);
+  g.fillTriangle(20, 0, 40, -16, 40, 16);
+  g.fillStyle(COLORS.water);
+  g.fillEllipse(-2, 0, 62, 38);
+  g.fillStyle(COLORS.waterLight, 0.7);
+  g.fillEllipse(-8, 4, 40, 22);
+  g.fillStyle(COLORS.waterDeep);
+  g.fillTriangle(0, -18, 14, -30, 16, -14);
+  g.fillStyle(COLORS.white);
+  g.fillCircle(-18, -5, 6);
+  g.fillStyle(COLORS.ink);
+  g.fillCircle(-19, -5, 3);
+  c.add(g);
+  return c;
+}
+
+function drawIceCream(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+  g.fillStyle(0xD9A96B);
+  g.fillTriangle(-15, 2, 15, 2, 0, 42);
+  g.lineStyle(1.5, 0xB98A50, 0.7);
+  for (let i = -1; i <= 1; i++) g.lineBetween(i * 8, 4, i * 5, 36);
+  g.fillStyle(0xF2A0B5);
+  g.fillCircle(-8, -8, 14);
+  g.fillStyle(0xFBF3E4);
+  g.fillCircle(9, -6, 13);
+  g.fillStyle(0xB4DBA5);
+  g.fillCircle(0, -24, 13);
+  g.fillStyle(COLORS.red);
+  g.fillCircle(1, -35, 4);
+  c.add(g);
+  return c;
+}
+
+/** The countable things a counting task can ask a child to tap. */
+export function drawIcon(
+  scene: Phaser.Scene,
+  kind: IconKind,
+  scale = 1
+): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0).setScale(scale);
+  const g = scene.add.graphics();
+
+  switch (kind) {
+    case 'pancake':
+      g.fillStyle(COLORS.woodDeep, 0.25);
+      g.fillEllipse(0, 10, 46, 12);
+      g.fillStyle(0xE0B36B);
+      g.fillEllipse(0, 4, 46, 18);
+      g.fillStyle(0xEFC77F);
+      g.fillEllipse(0, 0, 46, 18);
+      g.fillStyle(0xC98A3E, 0.55);
+      g.fillEllipse(-8, -2, 16, 7);
+      g.fillStyle(COLORS.sun);
+      g.fillRoundedRect(-7, -9, 14, 7, 3);
+      break;
+    case 'apple':
+      g.fillStyle(COLORS.roofDeep);
+      g.fillCircle(0, 3, 19);
+      g.fillStyle(COLORS.red);
+      g.fillCircle(0, 1, 18);
+      g.fillStyle(COLORS.white, 0.4);
+      g.fillEllipse(-7, -6, 9, 6);
+      g.lineStyle(4, COLORS.woodDeep);
+      g.lineBetween(0, -16, 2, -25);
+      g.fillStyle(COLORS.grass);
+      g.fillEllipse(10, -24, 16, 9);
+      break;
+    case 'towel':
+      g.fillStyle(COLORS.waterLight);
+      g.fillRoundedRect(-24, -14, 48, 28, 7);
+      g.fillStyle(COLORS.white, 0.75);
+      g.fillRect(-24, -6, 48, 5);
+      g.fillRect(-24, 3, 48, 5);
+      g.lineStyle(2, COLORS.waterDeep, 0.4);
+      g.strokeRoundedRect(-24, -14, 48, 28, 7);
+      break;
+    case 'flower':
+      g.lineStyle(4, COLORS.grassDeep);
+      g.lineBetween(0, 24, 0, 2);
+      g.fillStyle(COLORS.grass);
+      g.fillEllipse(-9, 16, 15, 8);
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
+        g.fillStyle(COLORS.pink);
+        g.fillCircle(Math.cos(a) * 11, Math.sin(a) * 11 - 4, 9);
+      }
+      g.fillStyle(COLORS.sun);
+      g.fillCircle(0, -4, 6);
+      break;
+    case 'key':
+      g.fillStyle(COLORS.sunDeep);
+      g.fillCircle(0, -10, 14);
+      g.fillStyle(COLORS.sun);
+      g.fillCircle(0, -11, 11);
+      g.fillStyle(COLORS.white);
+      g.fillCircle(0, -11, 4);
+      g.fillStyle(COLORS.sunDeep);
+      g.fillRoundedRect(-3, 0, 6, 26, 2);
+      g.fillRoundedRect(-3, 14, 11, 4, 2);
+      g.fillRoundedRect(-3, 21, 9, 4, 2);
+      break;
+    case 'carrot':
+      g.fillStyle(0xE8944F);
+      g.fillTriangle(-11, -12, 11, -12, 0, 24);
+      g.fillStyle(0xD97F3C, 0.5);
+      g.fillTriangle(2, -12, 11, -12, 0, 24);
+      g.fillStyle(COLORS.grassDeep);
+      g.fillEllipse(-7, -18, 12, 14);
+      g.fillEllipse(7, -18, 12, 14);
+      g.fillStyle(COLORS.grass);
+      g.fillEllipse(0, -22, 12, 16);
+      break;
+    case 'clap': {
+      // Two hands meeting. Each is drawn in its own rotated container — a flat pair of
+      // rounded rectangles read as two beige slabs, not as hands.
+      const impact = scene.add.graphics();
+      impact.lineStyle(3, COLORS.sunDeep, 0.9);
+      for (let i = -1; i <= 1; i++) {
+        const a = Phaser.Math.DegToRad(i * 34);
+        impact.lineBetween(Math.cos(a) * 26, Math.sin(a) * 26 - 4, Math.cos(a) * 38, Math.sin(a) * 38 - 4);
+        impact.lineBetween(-Math.cos(a) * 26, Math.sin(a) * 26 - 4, -Math.cos(a) * 38, Math.sin(a) * 38 - 4);
+      }
+      c.add(impact);
+
+      for (const side of [-1, 1] as const) {
+        const hand = scene.add.graphics();
+        // palm
+        hand.fillStyle(0xE8C4A2);
+        hand.fillRoundedRect(-11, -16, 22, 34, { tl: 10, tr: 10, bl: 6, br: 6 });
+        hand.fillStyle(0xF6D9BE);
+        hand.fillRoundedRect(-11, -16, 15, 34, { tl: 9, tr: 0, bl: 5, br: 0 });
+        // finger creases, so it is not one solid shape
+        hand.lineStyle(1.5, 0xD2A681, 0.8);
+        for (let f = 0; f < 3; f++) hand.lineBetween(-8, -8 + f * 8, 8, -8 + f * 8);
+        // thumb
+        hand.fillStyle(0xE8C4A2);
+        hand.fillRoundedRect(6, 4, 13, 9, 4.5);
+        hand.lineStyle(1.5, 0xD2A681, 0.6);
+        hand.strokeRoundedRect(-11, -16, 22, 34, 8);
+
+        const holder = scene.add.container(side * 13, 0, [hand]);
+        holder.setAngle(side * 14);
+        holder.setScale(side, 1);
+        c.add(holder);
+      }
+      break;
+    }
+    case 'cup':
+      g.fillStyle(COLORS.shadow, 0.12);
+      g.fillEllipse(0, 20, 34, 8);
+      g.fillStyle(COLORS.white);
+      g.fillRoundedRect(-15, -14, 30, 34, { tl: 3, tr: 3, bl: 11, br: 11 });
+      g.fillStyle(COLORS.waterLight, 0.85);
+      g.fillRoundedRect(-12, -2, 24, 19, { tl: 0, tr: 0, bl: 9, br: 9 });
+      g.lineStyle(4, COLORS.white);
+      g.beginPath();
+      g.arc(17, 2, 9, Phaser.Math.DegToRad(-70), Phaser.Math.DegToRad(70), false);
+      g.strokePath();
+      break;
+  }
+
+  c.add(g);
+  return c;
+}
+
 
 function drawShape(
   scene: Phaser.Scene,

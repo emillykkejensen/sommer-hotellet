@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { COLORS, DEPTH, INK, INK_SOFT, SIZE, text } from '../config';
 import { gameState } from '../state/GameState';
-import { IconKind, Task, TaskBody } from '../tasks/types';
-import { clockLabel, drawClock, drawFigure, drawThermometer } from '../tasks/figures';
+import { Task, TaskBody } from '../tasks/types';
+import { clockLabel, drawClock, drawFigure, drawIcon, drawThermometer } from '../tasks/figures';
 import { showCheckmark, showStarBurst, showToast } from '../objects/FeedbackEffects';
 import { shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
@@ -140,136 +140,6 @@ export class TaskOverlayScene extends Phaser.Scene {
     tappable(this, c, 44, 44, () => speak(this.task.spoken ?? this.task.prompt));
   }
 
-  /* ----------------------------------------------------------------- icons --- */
-
-  /** The countable things. Drawn rather than emoji, to match the rest of the game. */
-  private drawIcon(kind: IconKind, scale = 1): Phaser.GameObjects.Container {
-    const c = this.add.container(0, 0).setScale(scale);
-    const g = this.add.graphics();
-
-    switch (kind) {
-      case 'pancake':
-        g.fillStyle(COLORS.woodDeep, 0.25);
-        g.fillEllipse(0, 10, 46, 12);
-        g.fillStyle(0xE0B36B);
-        g.fillEllipse(0, 4, 46, 18);
-        g.fillStyle(0xEFC77F);
-        g.fillEllipse(0, 0, 46, 18);
-        g.fillStyle(0xC98A3E, 0.55);
-        g.fillEllipse(-8, -2, 16, 7);
-        g.fillStyle(COLORS.sun);
-        g.fillRoundedRect(-7, -9, 14, 7, 3);
-        break;
-      case 'apple':
-        g.fillStyle(COLORS.roofDeep);
-        g.fillCircle(0, 3, 19);
-        g.fillStyle(COLORS.red);
-        g.fillCircle(0, 1, 18);
-        g.fillStyle(COLORS.white, 0.4);
-        g.fillEllipse(-7, -6, 9, 6);
-        g.lineStyle(4, COLORS.woodDeep);
-        g.lineBetween(0, -16, 2, -25);
-        g.fillStyle(COLORS.grass);
-        g.fillEllipse(10, -24, 16, 9);
-        break;
-      case 'towel':
-        g.fillStyle(COLORS.waterLight);
-        g.fillRoundedRect(-24, -14, 48, 28, 7);
-        g.fillStyle(COLORS.white, 0.75);
-        g.fillRect(-24, -6, 48, 5);
-        g.fillRect(-24, 3, 48, 5);
-        g.lineStyle(2, COLORS.waterDeep, 0.4);
-        g.strokeRoundedRect(-24, -14, 48, 28, 7);
-        break;
-      case 'flower':
-        g.lineStyle(4, COLORS.grassDeep);
-        g.lineBetween(0, 24, 0, 2);
-        g.fillStyle(COLORS.grass);
-        g.fillEllipse(-9, 16, 15, 8);
-        for (let i = 0; i < 5; i++) {
-          const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
-          g.fillStyle(COLORS.pink);
-          g.fillCircle(Math.cos(a) * 11, Math.sin(a) * 11 - 4, 9);
-        }
-        g.fillStyle(COLORS.sun);
-        g.fillCircle(0, -4, 6);
-        break;
-      case 'key':
-        g.fillStyle(COLORS.sunDeep);
-        g.fillCircle(0, -10, 14);
-        g.fillStyle(COLORS.sun);
-        g.fillCircle(0, -11, 11);
-        g.fillStyle(COLORS.white);
-        g.fillCircle(0, -11, 4);
-        g.fillStyle(COLORS.sunDeep);
-        g.fillRoundedRect(-3, 0, 6, 26, 2);
-        g.fillRoundedRect(-3, 14, 11, 4, 2);
-        g.fillRoundedRect(-3, 21, 9, 4, 2);
-        break;
-      case 'carrot':
-        g.fillStyle(0xE8944F);
-        g.fillTriangle(-11, -12, 11, -12, 0, 24);
-        g.fillStyle(0xD97F3C, 0.5);
-        g.fillTriangle(2, -12, 11, -12, 0, 24);
-        g.fillStyle(COLORS.grassDeep);
-        g.fillEllipse(-7, -18, 12, 14);
-        g.fillEllipse(7, -18, 12, 14);
-        g.fillStyle(COLORS.grass);
-        g.fillEllipse(0, -22, 12, 16);
-        break;
-      case 'clap': {
-        // Two hands meeting. Each is drawn in its own rotated container — a flat pair of
-        // rounded rectangles read as two beige slabs, not as hands.
-        const impact = this.add.graphics();
-        impact.lineStyle(3, COLORS.sunDeep, 0.9);
-        for (let i = -1; i <= 1; i++) {
-          const a = Phaser.Math.DegToRad(i * 34);
-          impact.lineBetween(Math.cos(a) * 26, Math.sin(a) * 26 - 4, Math.cos(a) * 38, Math.sin(a) * 38 - 4);
-          impact.lineBetween(-Math.cos(a) * 26, Math.sin(a) * 26 - 4, -Math.cos(a) * 38, Math.sin(a) * 38 - 4);
-        }
-        c.add(impact);
-
-        for (const side of [-1, 1] as const) {
-          const hand = this.add.graphics();
-          // palm
-          hand.fillStyle(0xE8C4A2);
-          hand.fillRoundedRect(-11, -16, 22, 34, { tl: 10, tr: 10, bl: 6, br: 6 });
-          hand.fillStyle(0xF6D9BE);
-          hand.fillRoundedRect(-11, -16, 15, 34, { tl: 9, tr: 0, bl: 5, br: 0 });
-          // finger creases, so it is not one solid shape
-          hand.lineStyle(1.5, 0xD2A681, 0.8);
-          for (let f = 0; f < 3; f++) hand.lineBetween(-8, -8 + f * 8, 8, -8 + f * 8);
-          // thumb
-          hand.fillStyle(0xE8C4A2);
-          hand.fillRoundedRect(6, 4, 13, 9, 4.5);
-          hand.lineStyle(1.5, 0xD2A681, 0.6);
-          hand.strokeRoundedRect(-11, -16, 22, 34, 8);
-
-          const holder = this.add.container(side * 13, 0, [hand]);
-          holder.setAngle(side * 14);
-          holder.setScale(side, 1);
-          c.add(holder);
-        }
-        break;
-      }
-      case 'cup':
-        g.fillStyle(COLORS.shadow, 0.12);
-        g.fillEllipse(0, 20, 34, 8);
-        g.fillStyle(COLORS.white);
-        g.fillRoundedRect(-15, -14, 30, 34, { tl: 3, tr: 3, bl: 11, br: 11 });
-        g.fillStyle(COLORS.waterLight, 0.85);
-        g.fillRoundedRect(-12, -2, 24, 19, { tl: 0, tr: 0, bl: 9, br: 9 });
-        g.lineStyle(4, COLORS.white);
-        g.beginPath();
-        g.arc(17, 2, 9, Phaser.Math.DegToRad(-70), Phaser.Math.DegToRad(70), false);
-        g.strokePath();
-        break;
-    }
-
-    c.add(g);
-    return c;
-  }
-
   /* ------------------------------------------------------------- templates --- */
 
   private buildBody(): void {
@@ -292,7 +162,7 @@ export class TaskOverlayScene extends Phaser.Scene {
     const target = b.target;
 
     const stack = this.add.container(0, -6);
-    const icon = this.drawIcon(b.icon, 1.9);
+    const icon = drawIcon(this, b.icon, 1.9);
     stack.add(icon);
     this.body.add(stack);
 

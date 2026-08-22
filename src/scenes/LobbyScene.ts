@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS, SIZE, text } from '../config';
-import { GuestData, gameState, MAX_WAITING_GUESTS, ROOM_COUNT } from '../state/GameState';
+import { GuestData, gameState, MAX_WAITING_GUESTS } from '../state/GameState';
 import { showHearts, showStarBurst, showToast } from '../objects/FeedbackEffects';
 import { addBackButton, addSceneTitle, addStarCounter } from '../ui/Chrome';
 import { rewardFor } from '../helpers/Reward';
@@ -127,18 +127,21 @@ export class LobbyScene extends BaseScene {
   }
 
   private buildKeyBoard(cx: number, cy: number): void {
+    const rooms = gameState.roomCount;
+    // the board grows with the hotel rather than assuming three hooks
+    const halfW = 27 + rooms * 16.5;
     const g = this.add.graphics();
 
-    shadow(g, cx - 60, cy - 46, 120, 96, 10, 3, 0.16);
+    shadow(g, cx - halfW, cy - 46, halfW * 2, 96, 10, 3, 0.16);
     g.fillStyle(COLORS.woodDeep);
-    g.fillRoundedRect(cx - 60, cy - 46, 120, 96, 10);
+    g.fillRoundedRect(cx - halfW, cy - 46, halfW * 2, 96, 10);
     g.fillStyle(COLORS.wood);
-    g.fillRoundedRect(cx - 55, cy - 41, 110, 86, 8);
+    g.fillRoundedRect(cx - halfW + 5, cy - 41, halfW * 2 - 10, 86, 8);
 
     const c = this.add.container(0, 0, [g]);
 
-    for (let i = 0; i < ROOM_COUNT; i++) {
-      const kx = cx - 33 + i * 33;
+    for (let i = 0; i < rooms; i++) {
+      const kx = cx + (i - (rooms - 1) / 2) * 33;
       const ky = cy - 12;
 
       const hook = this.add.graphics();

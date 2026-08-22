@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { COLORS, DEPTH, INK, INK_SOFT, SIZE, text } from '../config';
 import { gameState } from '../state/GameState';
-import { SHOP_ITEMS, ShopItem } from '../state/Shop';
+import { SHOP_ITEMS, SHOP_UPGRADES, ShopItem, ShopUpgrade } from '../state/Shop';
 import { showSparkle, showToast } from '../objects/FeedbackEffects';
 import { addBackButton, addSceneTitle, addStarCounter } from '../ui/Chrome';
 import { gradientBand, shadow, tappable } from '../helpers/Draw';
@@ -21,7 +21,11 @@ const AREA_LABEL: Record<ShopItem['area'], string> = {
  * The star sink. Without somewhere for stars to go there is no reason to earn the next
  * one — which is also the reason a maths task can feel worth solving.
  */
+type Tab = 'ting' | 'hotellet';
+
 export class ShopScene extends BaseScene {
+  private tab: Tab = 'ting';
+
   constructor() {
     super({ key: 'ShopScene' });
   }
@@ -56,29 +60,149 @@ export class ShopScene extends BaseScene {
   protected buildDynamic(): void {
     const { width, height } = this.scale;
 
-    const owned = SHOP_ITEMS.filter(i => gameState.owns(i.id)).length;
-    this.dyn(this.add.text(width / 2, 112,
-      owned === SHOP_ITEMS.length
+    const total = SHOP_ITEMS.length + SHOP_UPGRADES.length;
+    const owned = [...SHOP_ITEMS, ...SHOP_UPGRADES].filter(i => gameState.owns(i.id)).length;
+    this.dyn(this.add.text(width / 2, 104,
+      owned === total
         ? 'Du har købt alt til hotellet!'
         : 'Brug dine stjerner på noget til hotellet',
       text(SIZE.body, INK_SOFT, 'semibold')).setOrigin(0.5));
 
-    const cols = 5;
-    const cardW = 168;
-    const cardH = 168;
-    const gapX = 12;
-    const gapY = 18;
-    const startX = width / 2 - ((cols - 1) * (cardW + gapX)) / 2;
+    this.buildTabs(width / 2, 140);
 
-    SHOP_ITEMS.forEach((item, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      this.buildCard(item, startX + col * (cardW + gapX), 232 + row * (cardH + gapY), cardW, cardH);
+    if (this.tab === 'ting') {
+      const cols = 5;
+      const cardW = 168;
+      const cardH = 158;
+      const startX = width / 2 - ((cols - 1) * (cardW + 12)) / 2;
+      SHOP_ITEMS.forEach((item, i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        this.buildCard(item, startX + col * (cardW + 12), 254 + row * (cardH + 16), cardW, cardH);
+      });
+      this.dyn(this.add.text(width / 2, height - 20,
+        'Tingene dukker op i rummene, når du har købt dem',
+        text(SIZE.tiny, INK_SOFT, 'semibold')).setOrigin(0.5));
+      return;
+    }
+
+    const cardW = 224;
+    const cardH = 210;
+    const startX = width / 2 - ((SHOP_UPGRADES.length - 1) * (cardW + 20)) / 2;
+    SHOP_UPGRADES.forEach((upgrade, i) => {
+      this.buildUpgradeCard(upgrade, startX + i * (cardW + 20), 348, cardW, cardH);
     });
-
-    this.dyn(this.add.text(width / 2, height - 22,
-      'Tingene dukker op i rummene, når du har købt dem',
+    this.dyn(this.add.text(width / 2, height - 20,
+      'Temaer vælges inde på værelserne',
       text(SIZE.tiny, INK_SOFT, 'semibold')).setOrigin(0.5));
+  }
+
+  /** Two shelves: things that decorate, and upgrades that change the hotel. */
+  private buildTabs(cx: number, y: number): void {
+    const tabs: { id: Tab; label: string; count: number; owned: number }[] = [
+      {
+        id: 'ting', label: 'Ting',
+        count: SHOP_ITEMS.length,
+        owned: SHOP_ITEMS.filter(i => gameState.owns(i.id)).length,
+      },
+      {
+        id: 'hotellet', label: 'Hotellet',
+        count: SHOP_UPGRADES.length,
+        owned: SHOP_UPGRADES.filter(i => gameState.owns(i.id)).length,
+      },
+    ];
+
+    tabs.forEach((tab, i) => {
+      const active = tab.id === this.tab;
+      const w = 176;
+      const h = 40;
+      const x = cx + (i - 0.5) * (w + 14);
+      const c = this.add.container(x, y);
+
+      const g = this.add.graphics();
+      if (active) shadow(g, -w / 2, -h / 2, w, h, h / 2, 3, 0.18);
+      g.fillStyle(active ? COLORS.sunDeep : COLORS.white, active ? 1 : 0.85);
+      g.fillRoundedRect(-w / 2, -h / 2, w, h, h / 2);
+      if (!active) {
+        g.lineStyle(2, COLORS.stoneDeep, 0.35);
+        g.strokeRoundedRect(-w / 2, -h / 2, w, h, h / 2);
+      }
+      c.add(g);
+      c.add(this.add.text(-14, 0, tab.label,
+        text(SIZE.body, active ? '#FFFFFF' : INK, 'bold')).setOrigin(0.5));
+      c.add(this.add.text(w / 2 - 30, 0, `${tab.owned}/${tab.count}`,
+        text(SIZE.tiny, active ? '#FFF6DD' : INK_SOFT, 'bold')).setOrigin(0.5));
+
+      this.dyn(c);
+      if (active) return;
+      tappable(this, c, w, h, () => {
+        this.tab = tab.id;
+        this.refresh();
+      });
+    });
+  }
+
+  private buildUpgradeCard(upgrade: ShopUpgrade, x: number, y: number, w: number, h: number): void {
+    const isOwned = gameState.owns(upgrade.id);
+    const affordable = gameState.canAfford(upgrade.cost);
+    const c = this.add.container(x, y);
+
+    const g = this.add.graphics();
+    shadow(g, -w / 2, -h / 2, w, h, 18, 4, isOwned ? 0.1 : 0.16);
+    g.fillStyle(COLORS.white, isOwned ? 0.72 : 1);
+    g.fillRoundedRect(-w / 2, -h / 2, w, h, 18);
+    g.lineStyle(2.5, isOwned ? COLORS.green : COLORS.stoneDeep, isOwned ? 0.8 : 0.35);
+    g.strokeRoundedRect(-w / 2, -h / 2, w, h, 18);
+    c.add(g);
+
+    const preview = upgrade.draw(this);
+    preview.setPosition(0, -28);
+    c.add(preview);
+
+    c.add(this.add.text(0, h / 2 - 66, upgrade.name, text(SIZE.body, INK, 'bold')).setOrigin(0.5));
+    c.add(this.add.text(0, h / 2 - 44, upgrade.blurb,
+      { ...text(SIZE.tiny, INK_SOFT, 'semibold'), wordWrap: { width: w - 40 }, align: 'center' })
+      .setOrigin(0.5));
+
+    if (isOwned) {
+      const badge = this.add.graphics();
+      badge.fillStyle(COLORS.green);
+      badge.fillRoundedRect(-38, h / 2 - 30, 76, 22, 11);
+      c.add(badge);
+      c.add(this.add.text(0, h / 2 - 19, 'Købt', text(SIZE.tiny, '#FFFFFF', 'bold')).setOrigin(0.5));
+      this.dyn(c);
+      return;
+    }
+
+    const tag = this.add.container(0, h / 2 - 18);
+    const tg = this.add.graphics();
+    tg.fillStyle(affordable ? COLORS.sun : COLORS.stone);
+    tg.fillRoundedRect(-40, -13, 80, 26, 13);
+    tag.add(tg);
+    tag.add(this.add.star(-20, 0, 5, 4.5, 9, affordable ? COLORS.white : COLORS.stoneDeep));
+    tag.add(this.add.text(7, 0, `${upgrade.cost}`,
+      text(SIZE.body, affordable ? '#5A4E42' : '#8A7E70', 'bold')).setOrigin(0.5));
+    c.add(tag);
+
+    if (!affordable) c.setAlpha(0.72);
+    this.dyn(c);
+
+    tappable(this, c, w, h, () => {
+      if (!gameState.buy(upgrade.id, upgrade.cost)) {
+        const short = upgrade.cost - gameState.stars;
+        audio.denied();
+        const message = `Du mangler ${short} ${short === 1 ? 'stjerne' : 'stjerner'}`;
+        showToast(this, x, y - h / 2 - 8, message, '#B9584A');
+        speak(message);
+        return;
+      }
+      audio.purchase();
+      showSparkle(this, x, y, w, h);
+      showToast(this, x, y - h / 2 - 8, `${upgrade.name} er købt!`, '#4A7F33');
+      speak(`${upgrade.name} er købt`);
+      this.events.emit('starsChanged', gameState.stars);
+      this.refresh();
+    });
   }
 
   private buildCard(item: ShopItem, x: number, y: number, w: number, h: number): void {

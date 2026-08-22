@@ -93,12 +93,19 @@ test('a task plays feedback for both a right and a wrong answer', async ({ page 
   await game.tap(AT.garden.sandbox.x, AT.garden.sandbox.y);
   expect(await game.waitForTask()).toBe(true);
 
+  // Identified by pitch, not by node count. Comparing how many sources two different
+  // answers start compares two whole code paths — the reward chime lands inside the window
+  // or just after it depending on how fast the renderer is — and 392/330 belong to the
+  // nudge and 523/659 to the success arpeggio, so the cue itself can be named.
   const wrong = await game.countingSounds(() => game.answerTaskWrong());
-  expect(wrong.sources, 'a wrong answer should be acknowledged').toBeGreaterThan(1);
+  expect(wrong.pitches, 'a wrong answer plays the two-note nudge')
+    .toEqual(expect.arrayContaining([392, 330]));
+  expect(wrong.pitches, 'and never the success arpeggio').not.toContain(523);
 
   const right = await game.countingSounds(() => game.solveTask());
-  expect(right.sources, 'a correct answer should play the success arpeggio')
-    .toBeGreaterThan(wrong.sources);
+  expect(right.pitches, 'a correct answer plays the rising arpeggio')
+    .toEqual(expect.arrayContaining([523, 659, 784]));
+  expect(right.pitches, 'and never the nudge').not.toContain(330);
   game.expectNoErrors();
 });
 

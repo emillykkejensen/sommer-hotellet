@@ -2,6 +2,9 @@ import { Page, expect } from '@playwright/test';
 import { GAME_HEIGHT, GAME_WIDTH } from '../src/config';
 import { ALL_SKILLS, Level } from '../src/tasks/types';
 
+/** What the audio spy has seen: node counts, plus every pitch the game scheduled. */
+type Tally = { contexts: number; oscillators: number; buffers: number; pitches: number[] };
+
 /**
  * Test harness for driving the Phaser canvas.
  *
@@ -45,7 +48,7 @@ export class Game {
    */
   private static async installAudioSpy(page: Page): Promise<void> {
     await page.addInitScript(() => {
-      const tally = { contexts: 0, oscillators: 0, buffers: 0 };
+      const tally = { contexts: 0, oscillators: 0, buffers: 0, pitches: [] as number[] };
       (window as any).__audio = tally;
 
       const Real = window.AudioContext;
@@ -57,7 +60,17 @@ export class Game {
         }
         createOscillator() {
           tally.oscillators++;
-          return super.createOscillator();
+          const osc = super.createOscillator();
+          // Record the pitch as it is scheduled. Counting nodes only proves that something
+          // made a sound; the pitch says which cue it was, which is what a test about
+          // feedback actually cares about.
+          const param = osc.frequency;
+          const real = param.setValueAtTime.bind(param);
+          param.setValueAtTime = (value: number, when: number) => {
+            tally.pitches.push(Math.round(value));
+            return real(value, when);
+          };
+          return osc;
         }
         createBufferSource() {
           tally.buffers++;
@@ -68,18 +81,27 @@ export class Game {
   }
 
   /** Web Audio nodes created so far. */
-  async audioTally(): Promise<{ contexts: number; oscillators: number; buffers: number }> {
+  async audioTally(): Promise<Tally> {
     return this.page.evaluate(() => ({ ...(window as any).__audio }));
   }
 
-  /** How many sound sources a block of work produced. */
-  async countingSounds<T>(work: () => Promise<T>): Promise<{ result: T; sources: number }> {
+  /**
+   * What a block of work sounded like: how many sources it started, and the pitches it
+   * scheduled. The pitches identify the cue — a rising 523-659-784-1047 is the success
+   * arpeggio and nothing else in the game plays it.
+   */
+  async countingSounds<T>(work: () => Promise<T>): Promise<{
+    result: T;
+    sources: number;
+    pitches: number[];
+  }> {
     const before = await this.audioTally();
     const result = await work();
     const after = await this.audioTally();
     return {
       result,
       sources: after.oscillators - before.oscillators + (after.buffers - before.buffers),
+      pitches: after.pitches.slice(before.pitches.length),
     };
   }
 

@@ -143,6 +143,30 @@ jobs:
       # v7 uploads a lone file unzipped, so this downloads as the APK itself rather than a
       # zip around it — which matters if the release below was skipped and this is the only
       # copy. It also drops the Node 20 deprecation warning the v4 actions were printing.
+      # "No permissions" is a claim worth enforcing rather than repeating: a plugin added
+      # later can pull one in through manifest merging without anyone noticing. androidx
+      # defines one app-private signature permission for its own non-exported receivers,
+      # which grants nothing and never reaches the user, so only real android.permission.*
+      # entries fail the build.
+      - name: Inspect the APK
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1)
+
+          echo "--- declared permissions"
+          "$AAPT2" dump permissions "$APK"
+
+          if "$AAPT2" dump permissions "$APK" | grep -q "uses-permission: name='android\.permission"; then
+            echo "::error::The APK now requires a system permission. It used to require none."
+            exit 1
+          fi
+
+          echo "--- the game is actually inside it"
+          unzip -l "$APK" | grep -E "assets/public/(index.html|fonts/)" || {
+            echo "::error::The web build is missing from the APK — did cap sync run?"
+            exit 1
+          }
+
       - name: Upload the APK as a build artifact
         uses: actions/upload-artifact@v7
         with:
@@ -165,7 +189,8 @@ jobs:
           Download **sommer-hotellet.apk** on the phone and open it. Android asks once for
           permission to install apps from the browser.
 
-          Needs Android 7 or newer. The app asks for no permissions and works offline."
+          Needs Android 7 or newer. No system permissions, not even internet access, and it
+          works entirely offline."
           if gh release view latest >/dev/null 2>&1; then
             gh release upload latest out/sommer-hotellet.apk --clobber
             gh release edit latest --notes "$NOTES"

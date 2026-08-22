@@ -41,8 +41,8 @@ so the game makes no network requests at all once it is loaded. A test asserts t
 
 Every push to `main` that passes the tests builds an Android APK and puts it on the
 [latest release](../../releases/tag/latest) — download it on the phone and tap it. It is the
-same web build inside a Capacitor shell, so it plays offline, asks for no permissions, and
-needs Android 7 or newer.
+same web build inside a Capacitor shell, so it plays offline, needs no system permissions —
+not even internet access — and runs on Android 7 or newer.
 
 The wrapper adds the six things a WebView does not give for free: read-aloud through
 Android's own text-to-speech (a WebView has no `speechSynthesis` at all), landscape lock,

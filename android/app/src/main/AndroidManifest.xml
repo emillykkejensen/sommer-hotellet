@@ -37,8 +37,13 @@
     </application>
 
     <!--
-      No permissions at all. Every pixel is drawn in code, every sound is synthesised and
+      No system permissions. Every pixel is drawn in code, every sound is synthesised and
       the save file never leaves the phone, so the app has nothing to ask for - not even
       INTERNET, since the WebView loads from the APK rather than the network.
+
+      Manifest merging still adds one entry: androidx.core declares an app-private
+      signature permission for its own non-exported broadcast receivers. It grants nothing
+      outside this app's own process and never appears to the person installing it. CI
+      fails the build if any real android.permission.* ever shows up.
     -->
 </manifest>

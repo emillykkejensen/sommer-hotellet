@@ -18,7 +18,13 @@ Every push to `main` that passes the tests builds an APK and puts it on the
 **sommer-hotellet.apk** and tap it. Android asks once for permission to install apps from
 the browser.
 
-Android 7 (2016) or newer. The app requests no permissions at all and works with no network.
+Android 7 (2016) or newer, and it works with no network.
+
+It requests no system permissions — not even `INTERNET`, since the WebView reads the game
+out of the APK. Manifest merging does add one entry, `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`,
+which androidx.core defines for its own non-exported broadcast receivers: it is scoped to
+this app's own signature, grants nothing beyond its own process and is never shown to the
+person installing. CI fails the build if a real `android.permission.*` ever appears.
 
 ## What the wrapper adds
 

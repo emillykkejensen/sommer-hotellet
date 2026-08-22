@@ -34,7 +34,7 @@ jobs:
       # the traces and screenshots say which tap landed where.
       - name: Upload failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-results
           path: |
@@ -60,7 +60,7 @@ jobs:
           cache: npm
 
       # Capacitor 8 builds with the Android Gradle Plugin 8.13, which needs JDK 21.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
@@ -140,8 +140,11 @@ jobs:
           mkdir -p out
           cp "$APK" out/sommer-hotellet.apk
 
+      # v7 uploads a lone file unzipped, so this downloads as the APK itself rather than a
+      # zip around it — which matters if the release below was skipped and this is the only
+      # copy. It also drops the Node 20 deprecation warning the v4 actions were printing.
       - name: Upload the APK as a build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sommer-hotellet-apk-1.0.${{ github.run_number }}
           path: out/sommer-hotellet.apk
@@ -175,7 +178,7 @@ jobs:
 
       - name: Upload the Gradle log on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gradle-reports
           path: |

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS, INK, INK_SOFT, SIZE, text } from '../config';
+import { audio } from './Audio';
 import { press, reduceMotion } from './Motion';
 
 /**
@@ -89,7 +90,10 @@ export function button(
     c.on('pointerover', () => scene.tweens.add({ targets: c, scale: 1.04, duration: 120 }));
     c.on('pointerout', () => scene.tweens.add({ targets: c, scale: 1, duration: 120 }));
   }
-  c.on('pointerdown', () => press(scene, c, onClick, 0.94));
+  c.on('pointerdown', () => {
+    audio.tap();
+    press(scene, c, onClick, 0.94);
+  });
 
   return c;
 }
@@ -108,7 +112,10 @@ export function tappable(
     target.on('pointerover', () => scene.tweens.add({ targets: target, scale: base * 1.05, duration: 120 }));
     target.on('pointerout', () => scene.tweens.add({ targets: target, scale: base, duration: 120 }));
   }
-  target.on('pointerdown', () => press(scene, target, onClick, 0.92));
+  target.on('pointerdown', () => {
+    audio.tap();
+    press(scene, target, onClick, 0.92);
+  });
 }
 
 /** Vertical gradient band — replaces the flat sky and grass fills. */

@@ -6,6 +6,7 @@ import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrom
 import { rewardFor } from '../helpers/Reward';
 import { placeDecorations } from './ShopScene';
 import { caption, drawCloud, drawFlower, drawHead, drawPerson, drawSun, drawTree, gradientBand, shadow, tappable } from '../helpers/Draw';
+import { audio } from '../helpers/Audio';
 import { reduceMotion } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
 
@@ -132,6 +133,7 @@ export class GardenScene extends BaseScene {
     tappable(this, c, 66, 56, () => {
       const index = gameState.waterNextFlower();
       if (index === null) return;
+      audio.splash();
 
       const fx = 190 - 80 + index * 40;
       const fy = this.scale.height * 0.6;
@@ -232,6 +234,7 @@ export class GardenScene extends BaseScene {
 
     tappable(this, c, 156, 72, () => {
       if (!gameState.buildSandcastle()) return;
+      audio.pop();
       showStarBurst(this, x, y - 22);
 
       const castleDone = gameState.garden.sandcastle >= SANDCASTLE_STAGES;
@@ -355,6 +358,7 @@ export class GardenScene extends BaseScene {
       apple.setInteractive({ useHandCursor: true });
       apple.on('pointerdown', () => {
         if (!gameState.pickApple(i)) return;
+        audio.pop();
         award(this);
 
         // Detach into a world-space container so the fall survives the refresh.

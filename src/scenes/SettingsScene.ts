@@ -4,6 +4,7 @@ import { skillLabel } from '../tasks/picker';
 import { SKILLS, SkillId } from '../tasks/types';
 import { addBackButton, addSceneTitle } from '../ui/Chrome';
 import { gradientBand, shadow, tappable } from '../helpers/Draw';
+import { audio } from '../helpers/Audio';
 import { canSpeak } from '../helpers/Speech';
 import { BaseScene } from './BaseScene';
 
@@ -31,10 +32,10 @@ export class SettingsScene extends BaseScene {
   protected buildDynamic(): void {
     const { width } = this.scale;
 
-    this.buildModeChoice(width / 2, 130);
-    this.buildToggles(width / 2, 268);
-    this.buildProgress(width / 2, 356);
-    this.buildReset(width / 2, this.scale.height - 44);
+    this.buildModeChoice(width / 2, 126);
+    this.buildToggles(width / 2, 250);
+    this.buildProgress(width / 2, 358);
+    this.buildReset(width / 2, this.scale.height - 40);
   }
 
   /* ------------------------------------------------------------------ mode --- */
@@ -85,17 +86,20 @@ export class SettingsScene extends BaseScene {
   /* --------------------------------------------------------------- toggles --- */
 
   private buildToggles(cx: number, y: number): void {
-    const items: { key: 'matematik' | 'dansk' | 'speak'; label: string; available: boolean }[] = [
+    const items: { key: 'matematik' | 'dansk' | 'speak' | 'sound'; label: string; available: boolean }[] = [
       { key: 'matematik', label: 'Tal-opgaver', available: true },
       { key: 'dansk', label: 'Dansk-opgaver', available: true },
+      { key: 'sound', label: 'Lyd', available: audio.available() },
       { key: 'speak', label: 'Læs op', available: canSpeak() },
     ];
 
+    // 2x2 — four of these in one row would not fit the panel width
     items.forEach((item, i) => {
       const on = gameState.settings[item.key] && item.available;
-      const w = 210;
-      const x = cx - 218 + i * 218;
-      const c = this.add.container(x, y);
+      const w = 250;
+      const x = cx + (i % 2 === 0 ? -134 : 134);
+      const rowY = y + Math.floor(i / 2) * 56;
+      const c = this.add.container(x, rowY);
 
       const g = this.add.graphics();
       g.fillStyle(COLORS.white, 0.9);
@@ -121,12 +125,17 @@ export class SettingsScene extends BaseScene {
       }
       tappable(this, c, w, 44, () => {
         gameState.toggleSetting(item.key);
+        if (item.key === 'sound' && gameState.settings.sound) {
+          // let the grown-up hear what they just switched on
+          audio.unlock();
+          audio.pop();
+        }
         this.refresh();
       });
     });
 
     if (!canSpeak()) {
-      this.dyn(this.add.text(cx, y + 32,
+      this.dyn(this.add.text(cx, y + 118,
         'Denne browser kan ikke læse op',
         text(SIZE.tiny, INK_SOFT, 'semibold')).setOrigin(0.5));
     }

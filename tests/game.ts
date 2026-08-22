@@ -29,9 +29,57 @@ export class Game {
     // matters because software WebGL runs at a few frames a second.
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.addInitScript(() => window.localStorage.clear());
+    await Game.installAudioSpy(page);
     await page.goto('/');
     await game.waitForScene('MainMenuScene');
     return game;
+  }
+
+  /**
+   * Counts Web Audio nodes as they are created.
+   *
+   * Sound cannot be heard in a headless browser, but it can be observed: a passthrough
+   * subclass of AudioContext records what the game asks for, which is enough to prove the
+   * effects are wired up and that muting really silences them.
+   */
+  private static async installAudioSpy(page: Page): Promise<void> {
+    await page.addInitScript(() => {
+      const tally = { contexts: 0, oscillators: 0, buffers: 0 };
+      (window as any).__audio = tally;
+
+      const Real = window.AudioContext;
+      if (!Real) return;
+      window.AudioContext = class extends Real {
+        constructor(...args: any[]) {
+          super(...(args as []));
+          tally.contexts++;
+        }
+        createOscillator() {
+          tally.oscillators++;
+          return super.createOscillator();
+        }
+        createBufferSource() {
+          tally.buffers++;
+          return super.createBufferSource();
+        }
+      } as unknown as typeof AudioContext;
+    });
+  }
+
+  /** Web Audio nodes created so far. */
+  async audioTally(): Promise<{ contexts: number; oscillators: number; buffers: number }> {
+    return this.page.evaluate(() => ({ ...(window as any).__audio }));
+  }
+
+  /** How many sound sources a block of work produced. */
+  async countingSounds<T>(work: () => Promise<T>): Promise<{ result: T; sources: number }> {
+    const before = await this.audioTally();
+    const result = await work();
+    const after = await this.audioTally();
+    return {
+      result,
+      sources: after.oscillators - before.oscillators + (after.buffers - before.buffers),
+    };
   }
 
   async tap(gx: number, gy: number): Promise<void> {
@@ -193,6 +241,8 @@ export class Game {
     body: any;
     skill: string;
     prompt: string;
+    /** Options already ruled out by a wrong answer — the scene stops drawing them. */
+    ruledOut: string[];
     hits: { x: number; y: number; label: string | null; w: number; h: number }[];
   }> {
     const info = await this.page.evaluate(() => {
@@ -217,7 +267,13 @@ export class Game {
         }
       };
       walk(scene.children.list, 0, 0);
-      return { body: scene.task.body, skill: scene.task.skill, prompt: scene.task.prompt, hits };
+      return {
+        body: scene.task.body,
+        skill: scene.task.skill,
+        prompt: scene.task.prompt,
+        ruledOut: [...(scene.ruledOut ?? [])],
+        hits,
+      };
     });
     if (!info) throw new Error('no task open');
     return info;
@@ -225,8 +281,8 @@ export class Game {
 
   /** Answers the open task correctly and waits for it to close. */
   async solveTask(): Promise<{ template: string; skill: string }> {
-    const { body, skill, hits } = await this.readTask();
-    await this.tapTaskAnswer(body, hits, true);
+    const { body, skill, hits, ruledOut } = await this.readTask();
+    await this.tapTaskAnswer(body, hits, true, ruledOut);
     await this.page.waitForFunction(
       () => !window.__game.scene.getScenes(true).some(s => s.scene.key === 'TaskOverlayScene'),
       undefined,
@@ -238,11 +294,16 @@ export class Game {
 
   /** Answers wrong once. The overlay must stay open — there is no fail state. */
   async answerTaskWrong(): Promise<void> {
-    const { body, hits } = await this.readTask();
-    await this.tapTaskAnswer(body, hits, false);
+    const { body, hits, ruledOut } = await this.readTask();
+    await this.tapTaskAnswer(body, hits, false, ruledOut);
   }
 
-  private async tapTaskAnswer(body: any, hits: any[], correct: boolean): Promise<void> {
+  private async tapTaskAnswer(
+    body: any,
+    hits: any[],
+    correct: boolean,
+    ruledOut: string[]
+  ): Promise<void> {
     // The scrim covers the whole canvas and the speaker is small; the answer targets sit
     // between those two sizes.
     const inBody = hits.filter(h => h.w > 45 && h.w < 240);
@@ -276,11 +337,22 @@ export class Game {
         return;
       }
       case 'pattern': {
+        // The swatches carry no label, so they have to be matched by position — and the
+        // scene stops drawing an option once it has been ruled out, so index into the
+        // options still on screen rather than the original list.
         const swatches = inBody.filter(h => h.label === null && h.w === 64);
+        const live = (body.options as number[]).filter(o => !ruledOut.includes(String(o)));
         const index = correct
-          ? body.options.indexOf(body.answer)
-          : body.options.findIndex((o: number) => o !== body.answer);
-        await this.tap(swatches[index].x, swatches[index].y);
+          ? live.indexOf(body.answer)
+          : live.findIndex(o => o !== body.answer);
+        const target = swatches[index];
+        if (!target) {
+          throw new Error(
+            `pattern swatch missing: wanted ${correct ? 'right' : 'wrong'} at index ${index} ` +
+            `of ${live.length} live options, found ${swatches.length} swatches`
+          );
+        }
+        await this.tap(target.x, target.y);
         return;
       }
       default:
@@ -320,6 +392,7 @@ export class Game {
   static async openWithSave(page: Page, patch: Record<string, unknown>): Promise<Game> {
     const game = new Game(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
+    await Game.installAudioSpy(page);
     await page.addInitScript((seed) => {
       window.localStorage.setItem('sommer-hotellet-save', JSON.stringify(seed));
     }, {
@@ -410,6 +483,12 @@ export const AT = {
 
   shop: { x: GAME_WIDTH - 74, y: 84 },
   settings: { x: 52, y: 84 },
-  settingsModeLaer: { x: GAME_WIDTH / 2 + 158, y: 162 },
-  settingsModeLeg: { x: GAME_WIDTH / 2 - 158, y: 162 },
+  settingsModeLaer: { x: GAME_WIDTH / 2 + 158, y: 158 },
+  settingsModeLeg: { x: GAME_WIDTH / 2 - 158, y: 158 },
+
+  // the toggle grid, laid out 2x2
+  toggleMath: { x: GAME_WIDTH / 2 - 134, y: 250 },
+  toggleDansk: { x: GAME_WIDTH / 2 + 134, y: 250 },
+  toggleSound: { x: GAME_WIDTH / 2 - 134, y: 306 },
+  toggleSpeak: { x: GAME_WIDTH / 2 + 134, y: 306 },
 } as const;

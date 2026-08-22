@@ -4,6 +4,7 @@ import { gameState } from '../state/GameState';
 import { IconKind, Task, TaskBody } from '../tasks/types';
 import { showCheckmark, showStarBurst, showToast } from '../objects/FeedbackEffects';
 import { shadow, tappable } from '../helpers/Draw';
+import { audio } from '../helpers/Audio';
 import { dur, reduceMotion } from '../helpers/Motion';
 import { speak, stopSpeaking } from '../helpers/Speech';
 
@@ -482,6 +483,7 @@ export class TaskOverlayScene extends Phaser.Scene {
 
   private miss(hint: string): void {
     this.attempts++;
+    audio.nudge();
     this.hint.setText(hint);
     speak(hint);
   }
@@ -498,6 +500,7 @@ export class TaskOverlayScene extends Phaser.Scene {
     gameState.recordAttempt(this.task.skill, firstTry);
 
     this.hint.setText(firstTry ? 'Rigtigt!' : 'Rigtigt — godt du blev ved!');
+    audio.success();
     showCheckmark(this, this.scale.width / 2, this.scale.height / 2 + 30);
     showStarBurst(this, this.scale.width / 2, this.scale.height / 2 - 20, 6);
     speak(firstTry ? 'Rigtigt!' : 'Rigtigt. Godt du blev ved.');

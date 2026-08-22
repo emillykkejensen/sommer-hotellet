@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { COLORS, DEPTH, INK, SIZE, text } from '../config';
 import { gameState } from '../state/GameState';
 import { shadow } from '../helpers/Draw';
+import { audio } from '../helpers/Audio';
 import { press, reduceMotion, transition } from '../helpers/Motion';
 
 /** Back arrow, top left. */
@@ -88,6 +89,7 @@ export function addStarCounter(scene: Phaser.Scene): Phaser.GameObjects.Containe
 /** Grants stars, plays the counter animation, and keeps the two concerns separate. */
 export function award(scene: Phaser.Scene, count = 1): void {
   gameState.addStars(count);
+  audio.star(count);
   scene.events.emit('starsChanged', gameState.stars);
 }
 

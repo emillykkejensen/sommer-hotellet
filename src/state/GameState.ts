@@ -53,6 +53,7 @@ export interface Settings {
   matematik: boolean;
   dansk: boolean;
   speak: boolean;
+  sound: boolean;
 }
 
 const SAVE_KEY = 'sommer-hotellet-save';
@@ -125,7 +126,7 @@ class GameState {
   }
 
   private freshSettings(): Settings {
-    return { mode: 'leg', matematik: true, dansk: true, speak: true };
+    return { mode: 'leg', matematik: true, dansk: true, speak: true, sound: true };
   }
 
   // ---------- shop ----------
@@ -158,9 +159,9 @@ class GameState {
     this.save();
   }
 
-  toggleSetting(key: 'matematik' | 'dansk' | 'speak'): void {
+  toggleSetting(key: 'matematik' | 'dansk' | 'speak' | 'sound'): void {
     // Never leave both subjects off — there would be nothing to ask.
-    if (key !== 'speak' && this.settings[key]) {
+    if ((key === 'matematik' || key === 'dansk') && this.settings[key]) {
       const other = key === 'matematik' ? 'dansk' : 'matematik';
       if (!this.settings[other]) return;
     }

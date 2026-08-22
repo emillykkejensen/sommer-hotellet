@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS, GAME_HEIGHT, GAME_WIDTH } from './config';
+import { audio } from './helpers/Audio';
 import { BootScene } from './scenes/BootScene';
 import { MainMenuScene } from './scenes/MainMenuScene';
 import { HotelMapScene } from './scenes/HotelMapScene';
@@ -23,6 +24,9 @@ const config: Phaser.Types.Core.GameConfig = {
   },
   backgroundColor: `#${COLORS.skyLight.toString(16).padStart(6, '0')}`,
   roundPixels: true,
+  // All sound is synthesised in helpers/Audio.ts, so Phaser's own sound manager would only
+  // create a second, unused AudioContext (and a suspended-autoplay warning) at boot.
+  audio: { noAudio: true },
   scene: [
     BootScene,
     MainMenuScene,
@@ -39,6 +43,16 @@ const config: Phaser.Types.Core.GameConfig = {
 };
 
 const game = new Phaser.Game(config);
+
+// Browsers keep an AudioContext suspended until the player interacts, so build it on the
+// very first tap rather than at load.
+const unlockAudio = () => {
+  audio.unlock();
+  window.removeEventListener('pointerdown', unlockAudio);
+  window.removeEventListener('keydown', unlockAudio);
+};
+window.addEventListener('pointerdown', unlockAudio);
+window.addEventListener('keydown', unlockAudio);
 
 // Exposed so the Playwright smoke tests can read scene state.
 (window as unknown as { __game: Phaser.Game }).__game = game;

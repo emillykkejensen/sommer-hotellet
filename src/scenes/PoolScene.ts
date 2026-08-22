@@ -6,6 +6,7 @@ import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrom
 import { rewardFor } from '../helpers/Reward';
 import { placeDecorations } from './ShopScene';
 import { caption, drawHead, drawSun, gradientBand, shadow, tappable } from '../helpers/Draw';
+import { audio } from '../helpers/Audio';
 import { BaseScene } from './BaseScene';
 
 export class PoolScene extends BaseScene {
@@ -104,7 +105,10 @@ export class PoolScene extends BaseScene {
     });
 
     const zone = this.add.zone(cx, cy, 356, 132).setInteractive({ useHandCursor: true });
-    zone.on('pointerdown', (p: Phaser.Input.Pointer) => showSplash(this, p.worldX, p.worldY));
+    zone.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      audio.splash();
+      showSplash(this, p.worldX, p.worldY);
+    });
     c.add(zone);
 
     return c;
@@ -154,6 +158,7 @@ export class PoolScene extends BaseScene {
 
       tappable(this, c, 76, 54, () => {
         if (!gameState.layTowel(i)) return;
+        audio.pop();
         showStarBurst(this, spot.x, spot.y - 6);
 
         const allDone = gameState.pool.towels.every(Boolean);
@@ -224,6 +229,7 @@ export class PoolScene extends BaseScene {
         duration: 620,
         ease: 'Quad.easeIn',
         onComplete: () => {
+          audio.splash();
           showSplash(this, x - 100, y + 52);
           showStarBurst(this, x - 100, y + 30, 4);
           showToast(this, x - 110, y - 10, 'Juhuu!', '#B9584A');

@@ -27,11 +27,12 @@ npm run dev        # http://localhost:3000
 | `npm run build` | Typecheck, then build to `dist/` |
 | `npm run preview` | Serve the production build |
 | `npm run typecheck` | `tsc --noEmit` only |
-| `npm test` | Playwright smoke tests (starts the dev server itself) |
+| `npm test` | Playwright tests (starts the dev server itself) |
 
-Everything is drawn in code with Phaser's `Graphics` API — there are no image assets, so
-the game loads instantly and every colour lives in one palette. The only external asset is
-the Nunito webfont, and the game falls back to a system stack if it cannot be fetched.
+Everything is drawn in code with Phaser's `Graphics` API and every sound is synthesised
+with Web Audio — there are no image or audio assets, so the game loads instantly and every
+colour lives in one palette. The only external asset is the Nunito webfont, and the game
+falls back to a system stack if it cannot be fetched.
 
 ## How the code is laid out
 
@@ -63,13 +64,14 @@ src/
     Motion.ts            prefers-reduced-motion handling
     Reward.ts            the single reward path every action goes through
     Speech.ts            da-DK read-aloud
-    AudioManager.ts      Web Audio sound effects (not yet wired up — see below)
+    Audio.ts             synthesised sound effects
   objects/FeedbackEffects.ts   star bursts, hearts, sparkles, toasts
   ui/Chrome.ts           back button, star counter, scene titles
 tests/
-  game.ts                canvas-driving harness, click targets, task solver
+  game.ts                canvas-driving harness, click targets, task solver, audio spy
   smoke.spec.ts          one test per scene
   learn.spec.ts          the shop and the task layer
+  sound.spec.ts          the audio contract
 ```
 
 ### The layer pattern
@@ -145,6 +147,32 @@ Difficulty moves on its own: three right in a row promotes, two wrong demotes
 wrong option off the board. The child always finishes and always leaves with at least one
 star; only a first-try answer counts as mastery for the level machinery.
 
+### Sound
+
+`helpers/Audio.ts` synthesises everything with Web Audio — no files, so nothing to
+download or license. Each sound is built from two primitives, a shaped `note()` and a
+filtered `noise()`, and everything routes through one gain node and a
+`DynamicsCompressor` so a child tapping fast cannot stack the effects into distortion.
+
+```ts
+audio.pop();        // a job finished
+audio.bell();       // reception bell: a struck partial stack
+audio.success();    // a task answered right
+audio.nudge();      // answered wrong — a nudge, not a buzzer
+```
+
+Two rules worth keeping:
+
+- **The context is built on the first gesture, never at boot.** Browsers start an
+  AudioContext suspended, and `unlock()` (wired to the first `pointerdown` in `main.ts`)
+  is what makes the first sound audible. Phaser's own sound manager is switched off with
+  `audio: { noAudio: true }` — it would otherwise build a second, unused context.
+- **Nothing sounds like being told off.** A wrong answer gets two soft descending notes.
+  There is no buzzer anywhere in the game.
+
+`tap()` fires from `button()` and `tappable()`, so every control is acknowledged without
+each scene wiring it up. Mute lives in settings and is persisted.
+
 ### Read-aloud
 
 `helpers/Speech.ts` speaks every prompt in Danish via `speechSynthesis`. If no `da-*` voice
@@ -205,12 +233,10 @@ fixed wait fires the next click into the old scene.
 
 ## Not done yet
 
-- **`AudioManager` is not wired up.** It synthesises a bell, splash, sparkle, sizzle and
-  a success arpeggio with no audio files, and nothing imports it. It needs a first-gesture
-  unlock for the `AudioContext` and a mute toggle.
-- **No sound.** `AudioManager` is the only piece of the original review still outstanding.
 - **The shop is the only sink.** Nine items, and once they are all bought stars accumulate
   again. A second tier — new room themes, a second floor — would extend the loop.
-- **Task coverage is uneven.** Money and clock tasks from `docs/EVALUATION.md` are not
-  built yet, and the Danish side leans on word recognition because drawn pictures for
-  every noun would be a lot of art.
+- **Task coverage is uneven.** Clock tasks from `docs/EVALUATION.md` are not built (money
+  is, as `minus` level 3), and the Danish side leans on word recognition because drawn
+  pictures for every noun would be a lot of art.
+- **No background music.** Only effects. A quiet loop would suit the setting, but it needs
+  a real composition rather than synthesis.

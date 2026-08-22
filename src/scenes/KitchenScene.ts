@@ -6,6 +6,7 @@ import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrom
 import { rewardFor } from '../helpers/Reward';
 import { placeDecorations } from './ShopScene';
 import { caption, drawHead, shadow, tappable } from '../helpers/Draw';
+import { audio } from '../helpers/Audio';
 import { BaseScene } from './BaseScene';
 
 interface Ingredient {
@@ -269,6 +270,7 @@ export class KitchenScene extends BaseScene {
         ease: 'Cubic.easeIn',
         onComplete: () => {
           holder.destroy();
+          audio.sizzle();
           showCheckmark(this, width / 2, height * 0.47);
           showStarBurst(this, width / 2, height * 0.5, 4);
 
@@ -418,6 +420,7 @@ export class KitchenScene extends BaseScene {
     tappable(this, c, w, h, () => {
       gameState.serveDish();
       gameState.setShowingDining(true);
+      audio.sparkle();
       award(this, 3);
       showToast(this, this.scale.width / 2, this.scale.height * 0.4, `${recipe.name} er serveret`, '#4A7F33');
       this.refresh();

@@ -5,6 +5,7 @@ import { SHOP_ITEMS, ShopItem } from '../state/Shop';
 import { showSparkle, showToast } from '../objects/FeedbackEffects';
 import { addBackButton, addSceneTitle, addStarCounter } from '../ui/Chrome';
 import { gradientBand, shadow, tappable } from '../helpers/Draw';
+import { audio } from '../helpers/Audio';
 import { speak } from '../helpers/Speech';
 import { BaseScene } from './BaseScene';
 
@@ -133,11 +134,13 @@ export class ShopScene extends BaseScene {
     tappable(this, c, w, h, () => {
       if (!gameState.buy(item.id, item.cost)) {
         const short = item.cost - gameState.stars;
+        audio.denied();
         const message = `Du mangler ${short} ${short === 1 ? 'stjerne' : 'stjerner'}`;
         showToast(this, x, y - h / 2 - 8, message, '#B9584A');
         speak(message);
         return;
       }
+      audio.purchase();
       showSparkle(this, x, y, w, h);
       showToast(this, x, y - h / 2 - 8, `${item.name} er købt!`, '#4A7F33');
       speak(`${item.name} er købt`);

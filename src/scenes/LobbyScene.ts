@@ -6,6 +6,7 @@ import { addBackButton, addSceneTitle, addStarCounter } from '../ui/Chrome';
 import { rewardFor } from '../helpers/Reward';
 import { placeDecorations } from './ShopScene';
 import { caption, drawPerson, shadow, tappable } from '../helpers/Draw';
+import { audio } from '../helpers/Audio';
 import { BaseScene } from './BaseScene';
 
 export class LobbyScene extends BaseScene {
@@ -192,6 +193,7 @@ export class LobbyScene extends BaseScene {
     if (full) return;
 
     tappable(this, c, 54, 46, () => {
+      audio.bell();
       this.tweens.add({
         targets: c,
         angle: { from: -9, to: 9 },

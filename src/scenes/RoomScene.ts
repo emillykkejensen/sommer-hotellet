@@ -6,6 +6,7 @@ import { addBackButton, addStarCounter } from '../ui/Chrome';
 import { rewardFor } from '../helpers/Reward';
 import { placeDecorations } from './ShopScene';
 import { caption, drawFlower, shadow, tappable } from '../helpers/Draw';
+import { audio } from '../helpers/Audio';
 import { BaseScene } from './BaseScene';
 
 interface ChoreSpec {
@@ -163,6 +164,7 @@ export class RoomScene extends BaseScene {
     tappable(this, c, spec.hitW, spec.hitH, () => {
       if (!gameState.completeChore(this.currentRoom, spec.key)) return;
       // The chore lands straight away; the task (in Lær mode) decides the stars.
+      audio.pop();
       showStarBurst(this, spec.x, spec.y - 10);
       showCheckmark(this, spec.x, spec.y - 34);
       rewardFor(this, 'rooms', { after: () => this.refresh() });

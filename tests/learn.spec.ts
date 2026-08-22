@@ -202,15 +202,11 @@ test('turning both subjects off leaves at least one on', async ({ page }) => {
   await game.tap(AT.settings.x, AT.settings.y);
   await game.waitForScene('SettingsScene');
 
-  // toggles sit in a row: matematik, dansk, speak
-  const mathToggle = { x: 480 - 218, y: 268 };
-  const danskToggle = { x: 480, y: 268 };
-
-  await game.tap(mathToggle.x, mathToggle.y);
+  await game.tap(AT.toggleMath.x, AT.toggleMath.y);
   await game.expectSave(s => s.settings.matematik).toBe(false);
 
   // dansk is now the only subject left; it must refuse to switch off
-  await game.tap(danskToggle.x, danskToggle.y);
+  await game.tap(AT.toggleDansk.x, AT.toggleDansk.y);
   const save = await game.save();
   expect(save.settings.dansk, 'the last subject cannot be switched off').toBe(true);
   game.expectNoErrors();

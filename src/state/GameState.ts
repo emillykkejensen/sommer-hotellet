@@ -1,4 +1,5 @@
 import { Level } from '../tasks/types';
+import { mirrorSave } from '../helpers/Native';
 export type Chore = 'bedMade' | 'curtainsOpen' | 'flowersPlaced' | 'vacuumed' | 'towelsFolded';
 
 export interface GuestData {
@@ -59,7 +60,7 @@ export interface Settings {
   music: boolean;
 }
 
-const SAVE_KEY = 'sommer-hotellet-save';
+export const SAVE_KEY = 'sommer-hotellet-save';
 const SAVE_VERSION = 3;
 
 /** Rooms the hotel starts with. The fourth is a shop upgrade. */
@@ -431,23 +432,29 @@ class GameState {
   }
 
   save(): void {
+    const json = JSON.stringify({
+      version: SAVE_VERSION,
+      stars: this.stars,
+      guests: this.guests,
+      rooms: this.rooms,
+      kitchen: this.kitchen,
+      pool: this.pool,
+      garden: this.garden,
+      nextGuestId: this.nextGuestId,
+      owned: this.owned,
+      settings: this.settings,
+      skills: this.skills,
+    });
+
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({
-        version: SAVE_VERSION,
-        stars: this.stars,
-        guests: this.guests,
-        rooms: this.rooms,
-        kitchen: this.kitchen,
-        pool: this.pool,
-        garden: this.garden,
-        nextGuestId: this.nextGuestId,
-        owned: this.owned,
-        settings: this.settings,
-        skills: this.skills,
-      }));
+      localStorage.setItem(SAVE_KEY, json);
     } catch {
       // private browsing or a full quota — the game still plays, it just will not persist
     }
+
+    // On Android the same bytes go to native storage as well, which survives the WebView
+    // having its web data cleared. No-op in a browser.
+    mirrorSave(json);
   }
 
   load(): void {

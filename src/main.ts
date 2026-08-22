@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { COLORS, GAME_HEIGHT, GAME_WIDTH } from './config';
 import { audio } from './helpers/Audio';
+import { setupNative } from './helpers/Native';
 import { BootScene } from './scenes/BootScene';
 import { MainMenuScene } from './scenes/MainMenuScene';
 import { HotelMapScene } from './scenes/HotelMapScene';
@@ -56,3 +57,7 @@ window.addEventListener('keydown', unlockAudio);
 
 // Exposed so the Playwright smoke tests can read scene state.
 (window as unknown as { __game: Phaser.Game }).__game = game;
+
+// Landscape lock, immersive fullscreen, keep-awake and the hardware back button. Every one
+// of these is a no-op in a browser, so the web build is unchanged.
+void setupNative(game);

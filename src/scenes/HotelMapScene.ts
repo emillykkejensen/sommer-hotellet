@@ -4,6 +4,7 @@ import { drawCloud, drawFlower, drawSun, drawTree, gradientBand, shadow } from '
 import { addSceneTitle, addStarCounter } from '../ui/Chrome';
 import { dur, press, reduceMotion, transition } from '../helpers/Motion';
 import { gameState } from '../state/GameState';
+import { setBackTarget } from '../helpers/Navigation';
 import { SHOP_ITEMS } from '../state/Shop';
 import { tappable } from '../helpers/Draw';
 
@@ -56,6 +57,11 @@ export class HotelMapScene extends Phaser.Scene {
       { label: 'Have',     scene: 'GardenScene',  color: COLORS.green,  x: width / 2 + 190, y: height * 0.79 },
     ];
     areas.forEach((a, i) => this.createAreaButton(a, i));
+
+    // The map is the game's home screen, so it has no back arrow. Android's back button
+    // still needs somewhere to go: the title screen, which makes a stray press cost one
+    // screen instead of closing the app on a child mid-game.
+    setBackTarget(this, 'MainMenuScene');
 
     addSceneTitle(this, 'Sommer Hotellet', '#B9584A');
     addStarCounter(this);

@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { COLORS, INK_SOFT, SIZE, text } from '../config';
 import { primeVoices } from '../helpers/Speech';
+import { restoreSaveIfEmpty } from '../helpers/Native';
+import { SAVE_KEY, gameState } from '../state/GameState';
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -32,9 +34,19 @@ export class BootScene extends Phaser.Scene {
     }
 
     // Phaser measures text against whatever font is available at draw time, so wait for
-    // the webfont before the first scene lays anything out.
+    // the font before the first scene lays anything out.
     const ready = document.fonts?.ready ?? Promise.resolve();
-    Promise.race([ready, new Promise(r => setTimeout(r, 2500))]).then(() => {
+
+    // On Android, native storage is the durable copy: if the WebView has lost its web
+    // storage, put it back before any scene reads the save. No-op in a browser.
+    const restored = restoreSaveIfEmpty(SAVE_KEY).then(did => {
+      if (did) gameState.load();
+    });
+
+    Promise.race([
+      Promise.all([ready, restored]),
+      new Promise(r => setTimeout(r, 2500)),
+    ]).then(() => {
       label.destroy();
       this.scene.start('MainMenuScene');
     });

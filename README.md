@@ -28,11 +28,30 @@ npm run dev        # http://localhost:3000
 | `npm run preview` | Serve the production build |
 | `npm run typecheck` | `tsc --noEmit` only |
 | `npm test` | Playwright tests (starts the dev server itself) |
+| `npm run android:sync` | Build, and copy it into the Android project |
+| `npm run android:apk` | ...and assemble a release APK (needs JDK 21 and the Android SDK) |
+| `npm run icons` | Redraw the launcher icon and splash screens |
 
 Everything is drawn in code with Phaser's `Graphics` API and every sound is synthesised
 with Web Audio — there are no image or audio assets, so the game loads instantly and every
-colour lives in one palette. The only external asset is the Nunito webfont, and the game
-falls back to a system stack if it cannot be fetched.
+colour lives in one palette. Nunito is bundled as a 38 KB variable font rather than fetched,
+so the game makes no network requests at all once it is loaded. A test asserts that.
+
+## On a phone
+
+Every push to `main` that passes the tests builds an Android APK and puts it on the
+[latest release](../../releases/tag/latest) — download it on the phone and tap it. It is the
+same web build inside a Capacitor shell, so it plays offline, asks for no permissions, and
+needs Android 7 or newer.
+
+The wrapper adds the six things a WebView does not give for free: read-aloud through
+Android's own text-to-speech (a WebView has no `speechSynthesis` at all), landscape lock,
+immersive fullscreen, the hardware back button, keep-awake, and a copy of the save in native
+storage. All six are tested in a browser by reproducing the conditions, in
+`tests/native.spec.ts`.
+
+**[docs/ANDROID.md](docs/ANDROID.md)** covers the signing keys, the four repository secrets
+and how to build one locally.
 
 ## How the code is laid out
 
@@ -350,5 +369,11 @@ Not bugs, but worth knowing before picking up the next piece of work.
 - **Sixteen drawable nouns** caps the reading vocabulary. More needs more drawings.
 - **Read-aloud is synthesised**, not recorded. Better voice selection and pacing help, but a
   real narrator would need audio files.
-- **The suite is slow in software rendering.** Around ten minutes with no GPU; roughly three
-  on CI. `test.slow()` marks the one test that buys the whole catalogue.
+- **The suite is slow in software rendering.** Around fifteen minutes with no GPU; roughly
+  ten on CI. `test.slow()` marks the one test that buys the whole catalogue.
+- **Read-aloud in the app depends on the phone.** Android's text-to-speech only has the
+  voices the device has installed; with no Danish one the speaker button goes quiet rather
+  than reading Danish in English.
+- **No iOS.** Capacitor would do it, but an IPA needs macOS and a paid Apple account.
+- **The Gradle build is only exercised on CI.** Nothing here builds an APK as part of `npm
+  test`, so a change to `android/` is verified by the Android job, not locally.

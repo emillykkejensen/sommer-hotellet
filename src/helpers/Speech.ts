@@ -1,4 +1,5 @@
 import { gameState } from '../state/GameState';
+import { canSpeakNative, isNative, primeNativeSpeech, speakNative, stopSpeakingNative } from './Native';
 
 /**
  * Danish read-aloud.
@@ -7,6 +8,11 @@ import { gameState } from '../state/GameState';
  * browser's own speech synthesis: no assets, no network, and da-DK voices ship with iOS,
  * macOS, Android and Windows. Where no Danish voice exists we stay silent rather than
  * reading Danish text with an English voice, which is worse than nothing.
+ *
+ * Inside the Android app there is no `window.speechSynthesis` at all — the Web Speech API
+ * has never been implemented in Android's WebView — so the native path in `Native.ts` talks
+ * to Android's own text-to-speech engine instead. Same rule either way: a Danish voice or
+ * silence.
  *
  * This is synthesis, not narration. A recorded voice would be warmer, but it would also be
  * a few hundred audio files to write, record and ship — so instead the effort goes into
@@ -47,6 +53,7 @@ function danishVoice(): SpeechSynthesisVoice | null {
 }
 
 export function canSpeak(): boolean {
+  if (isNative()) return canSpeakNative();
   return typeof window !== 'undefined' && !!window.speechSynthesis;
 }
 
@@ -63,8 +70,18 @@ function phrases(textToSay: string): string[] {
     .filter(Boolean);
 }
 
+/** A longer prompt gets read a little slower; a two-word hint does not need to crawl. */
+function rateFor(textToSay: string): number {
+  return textToSay.length > 70 ? 0.86 : 0.94;
+}
+
 export function speak(textToSay: string): void {
   if (!gameState.settings.speak || !canSpeak()) return;
+
+  if (isNative()) {
+    speakNative(textToSay, rateFor(textToSay));
+    return;
+  }
 
   const synth = window.speechSynthesis;
   const chosen = danishVoice();
@@ -73,8 +90,7 @@ export function speak(textToSay: string): void {
     synth.cancel();
 
     const parts = phrases(textToSay);
-    // A longer prompt gets read a little slower; a two-word hint does not need to crawl.
-    const rate = textToSay.length > 70 ? 0.86 : 0.94;
+    const rate = rateFor(textToSay);
 
     parts.forEach((part, i) => {
       const utterance = new SpeechSynthesisUtterance(part);
@@ -92,6 +108,7 @@ export function speak(textToSay: string): void {
 }
 
 export function stopSpeaking(): void {
+  stopSpeakingNative();
   try {
     window.speechSynthesis?.cancel();
   } catch {
@@ -101,7 +118,8 @@ export function stopSpeaking(): void {
 
 /** Voices load asynchronously in some browsers; warm the list up early. */
 export function primeVoices(): void {
-  if (!canSpeak()) return;
+  void primeNativeSpeech();
+  if (!window.speechSynthesis) return;
   const synth = window.speechSynthesis;
   const refresh = () => { voice = undefined; danishVoice(); };
   refresh();

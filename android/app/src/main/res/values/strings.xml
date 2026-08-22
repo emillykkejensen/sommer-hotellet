@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sommer Hotellet</string>
+    <string name="title_activity_main">Sommer Hotellet</string>
+    <string name="package_name">dk.werktoej.sommerhotellet</string>
+    <string name="custom_url_scheme">dk.werktoej.sommerhotellet</string>
+</resources>

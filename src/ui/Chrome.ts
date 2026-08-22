@@ -4,9 +4,13 @@ import { gameState } from '../state/GameState';
 import { shadow } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
 import { press, reduceMotion, transition } from '../helpers/Motion';
+import { setBackTarget } from '../helpers/Navigation';
 
 /** Back arrow, top left. */
 export function addBackButton(scene: Phaser.Scene, target = 'HotelMapScene'): Phaser.GameObjects.Container {
+  // Android's hardware back button reads this, so the two buttons cannot drift apart.
+  setBackTarget(scene, target);
+
   const label = scene.add.text(0, 0, 'Tilbage', text(SIZE.label, INK, 'bold')).setOrigin(0, 0.5);
 
   // Sized from the measured label, so the word never spills past the pill or collides

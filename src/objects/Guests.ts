@@ -26,11 +26,20 @@ export function placeName(place: Place | 'checkout'): string {
   }
 }
 
-/** "Suppe, salat og is" — a list the way a person would say it. */
-export function listDishes(dishes: string[]): string {
+/**
+ * "suppe, salat og is" — a list the way a person would say it.
+ *
+ * Menu items are capitalised on the recipe cards, which is right there and wrong in a
+ * sentence: "Suppe og Is, tak!" reads like two brand names. Lower case throughout, and the
+ * caller says whether the list starts a sentence.
+ */
+export function listDishes(dishes: string[], startsSentence = false): string {
   if (dishes.length === 0) return '';
-  if (dishes.length === 1) return dishes[0];
-  return `${dishes.slice(0, -1).join(', ')} og ${dishes[dishes.length - 1]}`;
+  const words = dishes.map(d => d.toLowerCase());
+  const joined = words.length === 1
+    ? words[0]
+    : `${words.slice(0, -1).join(', ')} og ${words[words.length - 1]}`;
+  return startsSentence ? joined.charAt(0).toUpperCase() + joined.slice(1) : joined;
 }
 
 /**
@@ -80,10 +89,10 @@ export function guestLine(guest: GuestData, now = Date.now()): GuestLine {
 
     case 'restaurant': {
       if (phase === 'happy') return { text: `Mmm, tak for mad!${heading}`, tone: 'happy' };
-      const left = listDishes(gameState.outstandingOrder(guest));
+      const left = gameState.outstandingOrder(guest);
       return phase === 'impatient'
-        ? { text: `Kommer der snart ${left}?`, tone: 'grumpy' }
-        : { text: `${left}, tak!`, tone: 'idle' };
+        ? { text: `Kommer der snart ${listDishes(left)}?`, tone: 'grumpy' }
+        : { text: `${listDishes(left, true)}, tak!`, tone: 'idle' };
     }
 
     case 'room':

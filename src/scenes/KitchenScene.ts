@@ -544,7 +544,7 @@ export class KitchenScene extends BaseScene {
     } else if (gameState.wantedDishes().length > 0) {
       hint = 'Tryk på en gæst for at servere maden';
     } else {
-      hint = `${listDishes([...new Set(gameState.openOrders())])} skal laves i køkkenet`;
+      hint = `${listDishes([...new Set(gameState.openOrders())], true)} skal laves i køkkenet`;
     }
     this.dyn(caption(this, width / 2, height - 20, hint,
       seated.length > 0 && open === 0 ? 'done' : 'idle'));
@@ -581,7 +581,7 @@ export class KitchenScene extends BaseScene {
       return;
     }
 
-    c.add(drawHead(this, 0, -26, guest.color, 1.1));
+    c.add(drawHead(this, 0, -30, guest.color, 1.5));
 
     // what has already been carried out to them
     guest.served.forEach((dish, i) => {
@@ -606,7 +606,7 @@ export class KitchenScene extends BaseScene {
       const result = gameState.serveTo(guest.id);
 
       if (!result) {
-        const left = listDishes(gameState.outstandingOrder(guest));
+        const left = listDishes(gameState.outstandingOrder(guest), true);
         showToast(this, spot.x, spot.y - 92, `${left} er ikke klar endnu`, '#B9584A');
         return;
       }

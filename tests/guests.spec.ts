@@ -153,7 +153,7 @@ test('the player carries the food out, and finishing the order feeds the guest',
   await game.enter('kitchen');
 
   await game.expectScreen('KitchenScene', 'the guest asks for both dishes')
-    .toContain('Suppe og Is, tak!');
+    .toContain('Suppe og is, tak!');
 
   const before = await game.stars();
   await game.tap(AT.kitchen.table1.x, AT.kitchen.table1.y);

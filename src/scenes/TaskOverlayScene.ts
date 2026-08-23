@@ -78,7 +78,7 @@ export class TaskOverlayScene extends Phaser.Scene {
     // task floating in empty white.
     const template = this.task.body.template;
     const TALL: TaskBody['template'][] = ['number-pad', 'count-taps', 'adjust'];
-    const ph = template === 'number-pad' ? 452 : TALL.includes(template) ? 400 : 350;
+    const ph = template === 'number-pad' ? 452 : TALL.includes(template) ? 400 : 306;
     const tall = TALL.includes(template);
     this.panel = this.add.container(width / 2, height / 2).setDepth(DEPTH.chrome + 10);
 

@@ -295,10 +295,12 @@ export class Game {
       const guest = mod.gameState.guests.find((g: any) => g.id === guestId);
       if (!guest) throw new Error(`no guest ${guestId}`);
       guest.since -= back as number;
-      mod.gameState.tickGuests();
     }, ['/src/state/GameState.ts', id, byMs] as const);
-    // the scene picks the change up on its next guest tick
-    await this.page.waitForTimeout(700);
+
+    // Deliberately not calling tickGuests() here: the scene redraws when *its* tick reports
+    // a change, so a helper that consumed the change itself would leave the guest grumpy in
+    // the save and still smiling on screen.
+    await this.page.waitForTimeout(1_400);
     await this.settle();
   }
 

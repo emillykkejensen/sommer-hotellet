@@ -3,9 +3,9 @@ import { gameState, Mode } from '../state/GameState';
 import { skillLabel } from '../tasks/picker';
 import { SKILLS, SkillId } from '../tasks/types';
 import { addBackButton, addSceneTitle } from '../ui/Chrome';
+import { forgetSpeech } from '../objects/Guests';
 import { gradientBand, shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
-import { canSpeak } from '../helpers/Speech';
 import { BaseScene } from './BaseScene';
 
 /**
@@ -32,10 +32,10 @@ export class SettingsScene extends BaseScene {
   protected buildDynamic(): void {
     const { width } = this.scale;
 
-    this.buildModeChoice(width / 2, 126);
-    this.buildToggles(width / 2, 236);
-    this.buildProgress(width / 2, 384);
-    this.buildReset(width / 2, this.scale.height - 40);
+    this.buildModeChoice(width / 2, 112);
+    this.buildToggles(width / 2, 210);
+    this.buildProgress(width / 2, 348);
+    this.buildReset(width / 2, this.scale.height - 26);
   }
 
   /* ------------------------------------------------------------------ mode --- */
@@ -87,14 +87,14 @@ export class SettingsScene extends BaseScene {
 
   private buildToggles(cx: number, y: number): void {
     const items: {
-      key: 'matematik' | 'dansk' | 'speak' | 'sound' | 'music';
+      key: 'matematik' | 'dansk' | 'voices' | 'sound' | 'music';
       label: string;
       available: boolean;
     }[] = [
       { key: 'matematik', label: 'Tal-opgaver', available: true },
       { key: 'dansk', label: 'Dansk-opgaver', available: true },
       { key: 'sound', label: 'Lyd', available: audio.available() },
-      { key: 'speak', label: 'Læs op', available: canSpeak() },
+      { key: 'voices', label: 'Gæstestemmer', available: audio.available() },
       { key: 'music', label: 'Musik', available: audio.available() },
     ];
 
@@ -103,7 +103,7 @@ export class SettingsScene extends BaseScene {
       const on = gameState.settings[item.key] && item.available;
       const w = 250;
       const x = cx + (i % 2 === 0 ? -134 : 134);
-      const rowY = y + Math.floor(i / 2) * 50;
+      const rowY = y + Math.floor(i / 2) * 48;
       const c = this.add.container(x, rowY);
 
       const g = this.add.graphics();
@@ -141,9 +141,9 @@ export class SettingsScene extends BaseScene {
       });
     });
 
-    if (!canSpeak()) {
-      this.dyn(this.add.text(cx, y + 158,
-        'Denne browser kan ikke læse op',
+    if (!audio.available()) {
+      this.dyn(this.add.text(cx, y + 150,
+        'Denne browser kan ikke spille lyd',
         text(SIZE.tiny, INK_SOFT, 'semibold')).setOrigin(0.5));
     }
   }
@@ -165,13 +165,13 @@ export class SettingsScene extends BaseScene {
 
     // Two columns. The catalogue is 19 skills deep, so this is the most-practised slice
     // rather than the whole list, with a count of what is not shown.
-    const shown = 8;
+    const shown = 6;
     const rows = practised.slice(0, shown);
     rows.forEach(({ skill, progress }, i) => {
       const col = i % 2;
       const row = Math.floor(i / 2);
       const x = cx - 250 + col * 500;
-      const ry = y + 32 + row * 32;
+      const ry = y + 32 + row * 30;
 
       const c = this.add.container(x, ry);
       const subject = SKILLS[skill as SkillId]?.subject ?? 'matematik';
@@ -202,7 +202,7 @@ export class SettingsScene extends BaseScene {
     const hidden = practised.length - rows.length;
     if (hidden > 0) {
       const lastRow = Math.ceil(rows.length / 2);
-      this.dyn(this.add.text(cx, y + 34 + lastRow * 32,
+      this.dyn(this.add.text(cx, y + 34 + lastRow * 30,
         `og ${hidden} ${hidden === 1 ? 'færdighed' : 'færdigheder'} mere`,
         text(SIZE.tiny, INK_SOFT, 'semibold')).setOrigin(0.5));
     }
@@ -230,6 +230,7 @@ export class SettingsScene extends BaseScene {
     tappable(this, c, w, 36, () => {
       if (this.confirmingReset) {
         gameState.reset();
+        forgetSpeech();
         this.confirmingReset = false;
         this.refresh();
         return;

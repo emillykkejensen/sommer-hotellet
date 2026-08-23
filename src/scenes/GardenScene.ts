@@ -5,7 +5,7 @@ import { showHearts, showSparkle, showStarBurst, showToast } from '../objects/Fe
 import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
 import { rewardFor } from '../helpers/Reward';
 import { placeDecorations } from './ShopScene';
-import { caption, drawCloud, drawFlower, drawHead, drawPerson, drawSun, drawTree, gradientBand, shadow, tappable } from '../helpers/Draw';
+import { caption, drawCloud, drawFlower, drawHead, drawSun, drawTree, gradientBand, shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
 import { dur, reduceMotion } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
@@ -64,7 +64,6 @@ export class GardenScene extends BaseScene {
     this.buildSandbox(width * 0.5, height * 0.78);
     this.buildSwing(width * 0.72, height * 0.5);
     this.buildAppleTree(width - 112, height * 0.5);
-    this.buildPlayers();
   }
 
   private buildFlowerBed(x: number, y: number): void {
@@ -155,16 +154,15 @@ export class GardenScene extends BaseScene {
       // decorative pause so the drops land before the reward
       this.time.delayedCall(dur(320), () => {
         showStarBurst(this, fx, fy - 20);
-        rewardFor(this, 'garden', {
-          after: () => {
-            if (bedDone) {
-              showSparkle(this, 190, fy, 220, 90);
-              showToast(this, 190, fy - 70, 'Hele bedet blomstrer', '#4A7F33');
-              award(this, 2);
-            }
-            this.refresh();
-          },
-        });
+        // One flower is a tap; the whole bed is the job. Only the job asks a question.
+        if (!bedDone) {
+          award(this, 1);
+          this.refresh();
+          return;
+        }
+        showSparkle(this, 190, fy, 220, 90);
+        showToast(this, 190, fy - 70, 'Hele bedet blomstrer', '#4A7F33');
+        rewardFor(this, 'garden', { base: 2, after: () => this.refresh() });
       });
     });
   }
@@ -238,18 +236,15 @@ export class GardenScene extends BaseScene {
       audio.pop();
       showStarBurst(this, x, y - 22);
 
-      const castleDone = gameState.garden.sandcastle >= SANDCASTLE_STAGES;
-      rewardFor(this, 'garden', {
-        after: () => {
-          if (castleDone) {
-            showSparkle(this, x, y - 40, 120, 110);
-            showHearts(this, x, y - 60);
-            showToast(this, x, y - 96, 'Sikke et slot!', '#4A7F33');
-            award(this, 2);
-          }
-          this.refresh();
-        },
-      });
+      if (gameState.garden.sandcastle < SANDCASTLE_STAGES) {
+        award(this, 1);
+        this.refresh();
+        return;
+      }
+      showSparkle(this, x, y - 40, 120, 110);
+      showHearts(this, x, y - 60);
+      showToast(this, x, y - 96, 'Sikke et slot!', '#4A7F33');
+      rewardFor(this, 'garden', { base: 2, after: () => this.refresh() });
     });
   }
 
@@ -301,7 +296,6 @@ export class GardenScene extends BaseScene {
           showHearts(this, x, y - 40);
           showStarBurst(this, x, y - 56, 4);
           award(this);
-          this.events.emit('starsChanged', gameState.stars);
         },
       });
 
@@ -390,7 +384,8 @@ export class GardenScene extends BaseScene {
         if (gameState.allApplesPicked()) {
           showSparkle(this, x, y - 30, 110, 110);
           showToast(this, x - 40, y - 80, 'Kurven er fuld', '#4A7F33');
-          award(this, 2);
+          rewardFor(this, 'garden', { base: 2, after: () => this.refresh() });
+          return;
         }
         this.refresh();
       });
@@ -422,25 +417,6 @@ export class GardenScene extends BaseScene {
       gameState.allApplesPicked() ? 'done' : 'idle'));
 
     this.dyn(c);
-  }
-
-  private buildPlayers(): void {
-    const { height } = this.scale;
-    const guests = gameState.getCheckedInGuests().slice(0, 2);
-    guests.forEach((guest, i) => {
-      // standing figures, not the head-and-shoulders crop used behind tables and water
-      const c = this.add.container(322 + i * 88, height * 0.56);
-      c.add(drawPerson(this, 0, 0, guest.color, 0.78));
-      this.dyn(c);
-      this.tweens.add({
-        targets: c,
-        y: c.y - 6,
-        duration: 1100 + i * 240,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.easeInOut',
-      });
-    });
   }
 
   private addButterflies(): void {

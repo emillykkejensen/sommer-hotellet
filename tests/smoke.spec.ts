@@ -48,7 +48,7 @@ test('room chores persist and pay out exactly once', async ({ page }) => {
   game.expectNoErrors();
 });
 
-test('kitchen keeps the selected recipe and cooks the dish', async ({ page }) => {
+test('the kitchen keeps its recipe and cooking puts a dish on the pass', async ({ page }) => {
   const game = await Game.open(page);
   await game.start();
   await game.enter('kitchen');
@@ -61,19 +61,33 @@ test('kitchen keeps the selected recipe and cooks the dish', async ({ page }) =>
   await game.tap(AT.kitchen.ingredient1.x, AT.kitchen.ingredient1.y);
   await game.tap(AT.kitchen.ingredient2.x, AT.kitchen.ingredient2.y);
   await game.tap(AT.kitchen.ingredient3.x, AT.kitchen.ingredient3.y);
-
   await game.expectSave(s => s.kitchen.added.length, 'three ingredients in the pot').toBe(3);
+
+  // Ingredients are free — the whole recipe is one job, and the stove is what pays for it.
+  expect(await game.stars(), 'putting a carrot in a pot is not worth a star').toBe(0);
+
+  await game.expectScreen('KitchenScene', 'a full pot offers to be cooked').toContain('Kog suppe');
+  await game.tap(AT.kitchen.cook.x, AT.kitchen.cook.y);
+
+  await game.expectSave(s => s.kitchen.ready, 'the dish lands on the pass').toEqual(['Suppe']);
+  await game.expectSave(s => s.kitchen.recipe, 'and the pot is empty again').toBe(null);
+  expect(await game.stars(), 'cooking pays').toBeGreaterThan(0);
   game.expectNoErrors();
 });
 
-test('kitchen dining toggle sticks', async ({ page }) => {
+test('the restaurant toggle sticks', async ({ page }) => {
   const game = await Game.open(page);
   await game.start();
   await game.enter('kitchen');
 
   await game.tap(AT.kitchen.toggle.x, AT.kitchen.toggle.y);
   await game.expectSave(s => s.kitchen.showingDining).toBe(true);
-  await game.expectScreen('KitchenScene', 'dining room should be on screen').toContain('Spisestuen');
+  await game.expectScreen('KitchenScene', 'the restaurant should be on screen')
+    .toContain('Restauranten');
+  // and only one title, not one stacked on top of the other
+  const titles = (await game.visibleText('KitchenScene'))
+    .filter(t => t === 'Restauranten' || t === 'Køkkenet');
+  expect(titles, 'exactly one scene title').toEqual(['Restauranten']);
 
   await game.tap(AT.kitchen.toggle.x, AT.kitchen.toggle.y);
   await game.expectSave(s => s.kitchen.showingDining).toBe(false);
@@ -123,7 +137,7 @@ test('garden watering and sandcastle accumulate', async ({ page }) => {
   game.expectNoErrors();
 });
 
-test('lobby check-in assigns a room and frees the key', async ({ page }) => {
+test('lobby check-in assigns a room, frees the key and starts the guest off', async ({ page }) => {
   const game = await Game.open(page);
   await game.start();
   await game.enter('lobby');
@@ -131,11 +145,18 @@ test('lobby check-in assigns a room and frees the key', async ({ page }) => {
   await game.tap(AT.lobby.bell.x, AT.lobby.bell.y);
   await game.expectSave(s => s.guests.length, 'bell summons a guest').toBe(1);
 
+  const arrival = (await game.guests())[0];
+  expect(arrival.at, 'a new guest waits at the desk').toBe('lobby');
+  expect(arrival.plan, 'and turns up with a plan for the day')
+    .toEqual(expect.arrayContaining(['pool', 'restaurant', 'room']));
+
   await game.tap(AT.lobby.guest1.x, AT.lobby.guest1.y);
   await game.expectSave(s => s.guests[0]?.checkedIn, 'guest checks in').toBe(true);
 
   const save = await game.save();
   expect(save.rooms[0].guestId).toBe(save.guests[0].id);
+  // and they have gone off to the first thing on their list rather than staying at the desk
+  expect(save.guests[0].at).toBe(save.guests[0].plan[0]);
   game.expectNoErrors();
 });
 
@@ -169,5 +190,23 @@ test('every scene loads without a renderer error', async ({ page }) => {
     await game.leave();
   }
 
+  game.expectNoErrors();
+});
+
+test('the title screen has a way out of the game', async ({ page }) => {
+  // A browser will not let a page close its own tab, so on the web the button says goodbye
+  // instead. Either way there has to be something to press: the Android build runs
+  // fullscreen with the system bars hidden, and had no exit at all.
+  const game = await Game.open(page);
+
+  await game.expectScreen('MainMenuScene', 'an exit button on the title screen')
+    .toContain('Afslut');
+
+  await game.tap(AT.exitButton.x, AT.exitButton.y);
+  await game.expectScreen('MainMenuScene', 'a farewell rather than a dead button')
+    .toContain('Tak for i dag!');
+
+  // and it is not a trap — the game can be resumed
+  await game.expectScreen('MainMenuScene').toContain('Spil videre');
   game.expectNoErrors();
 });

@@ -304,6 +304,88 @@ class Audio {
   denied(): void {
     this.note(196, 0, 0.18, 0.09, 'sine', 165);
   }
+
+  /** A plate put down in front of somebody. */
+  serve(): void {
+    this.note(660, 0, 0.09, 0.09, 'sine', 880);
+    this.noise(0.03, 0.07, 0.04, 'highpass', 3000);
+  }
+
+  /* ---------------------------------------------------------------------- voices --- */
+
+  /**
+   * One syllable of gibberish.
+   *
+   * A sawtooth through a narrow bandpass is the cheapest thing that reads as a voice
+   * rather than a beep: the filter picks out a band the way a mouth does, and gliding both
+   * the pitch and the band across the syllable gives it the shape of a spoken sound.
+   */
+  private syllable(freq: number, start: number, duration: number, peak: number, glideTo: number): void {
+    const ctx = this.ensure();
+    if (!ctx || !this.master) return;
+
+    const t = ctx.currentTime + start;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(freq, t);
+    osc.frequency.linearRampToValueAtTime(glideTo, t + duration);
+
+    // the "mouth": a band that moves with the pitch, which is what turns a buzz into a vowel
+    const formant = ctx.createBiquadFilter();
+    formant.type = 'bandpass';
+    formant.Q.value = 5;
+    formant.frequency.setValueAtTime(freq * 3.4, t);
+    formant.frequency.linearRampToValueAtTime(glideTo * 2.6, t + duration);
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(peak, t + 0.014);
+    gain.gain.setValueAtTime(peak, t + duration * 0.65);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+
+    osc.connect(formant);
+    formant.connect(gain);
+    gain.connect(this.master);
+    osc.start(t);
+    osc.stop(t + duration + 0.02);
+  }
+
+  /**
+   * Guest gibberish — the sound the original GTA made when somebody spoke.
+   *
+   * This replaced Danish speech synthesis. A real voice sounded like a station
+   * announcement whenever a device had a flat da-DK voice installed, and it read the text
+   * a child cannot read anyway. Nonsense syllables carry the same information — somebody
+   * is talking to you, and roughly how much they have to say — with none of that, and they
+   * are funny, which a five-year-old cares about more than diction.
+   *
+   * `voice` shifts the whole thing up or down so two guests never sound like one guest, and
+   * `startAt` delays it, so three guests all opening their mouths on the same frame take
+   * turns instead of talking over each other.
+   */
+  babble(syllables = 4, voice = 1, startAt = 0): void {
+    if (!gameState.settings.voices) return;
+
+    const base = 152 * voice;
+    // a few notes of a pentatonic-ish set, so the babble has a shape rather than a wobble
+    const steps = [1, 1.12, 0.9, 1.26, 0.8, 1.05];
+    const count = Math.max(2, Math.min(8, Math.round(syllables)));
+
+    let at = startAt;
+    for (let i = 0; i < count; i++) {
+      const length = 0.062 + Math.random() * 0.055;
+      const from = base * steps[Math.floor(Math.random() * steps.length)];
+      // the last syllable falls away, the way a sentence ends
+      const to = i === count - 1 ? from * 0.78 : from * (0.88 + Math.random() * 0.3);
+      this.syllable(from, at, length, 0.075, to);
+      at += length + 0.028 + Math.random() * 0.035;
+    }
+  }
+
+  /** A grumble: the same gibberish, lower and slower. */
+  grumble(voice = 1, startAt = 0): void {
+    this.babble(3, voice * 0.72, startAt);
+  }
 }
 
 export const audio = new Audio();

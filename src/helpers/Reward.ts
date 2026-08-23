@@ -13,6 +13,10 @@ import { award } from '../ui/Chrome';
  * world, and pays the stars. Chores are free, tasks pay.
  *
  * `after` runs once the reward has settled, so scenes can refresh at the right moment.
+ *
+ * Tasks are raised by a *finished job* — a dish cooked, a room made up, a guest checked in
+ * — never by a single tap. Asking a question for every carrot that went in the pot turned
+ * cooking one bowl of soup into three sums, which is how a game becomes homework.
  */
 export function rewardFor(
   scene: Phaser.Scene,
@@ -36,7 +40,9 @@ export function rewardFor(
   }
 
   runTask(scene, task, ({ stars }) => {
-    award(scene, stars);
+    // A task the child ran out of tries on pays nothing, and `award(0)` would still play
+    // the chime and bounce the counter.
+    if (stars > 0) award(scene, stars);
     after?.();
   });
 }

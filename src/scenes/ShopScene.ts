@@ -6,7 +6,6 @@ import { showSparkle, showToast } from '../objects/FeedbackEffects';
 import { addBackButton, addSceneTitle, addStarCounter } from '../ui/Chrome';
 import { gradientBand, shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
-import { speak } from '../helpers/Speech';
 import { BaseScene } from './BaseScene';
 
 const AREA_LABEL: Record<ShopItem['area'], string> = {
@@ -90,14 +89,14 @@ export class ShopScene extends BaseScene {
     }
 
     const upgradeCols = Math.ceil(SHOP_UPGRADES.length / 2);
-    const cardW = 216;
-    const cardH = 188;
+    const cardW = 212;
+    const cardH = 168;
     const stepX = cardW + 16;
     const startX = width / 2 - ((upgradeCols - 1) * stepX) / 2;
     SHOP_UPGRADES.forEach((upgrade, i) => {
       const col = i % upgradeCols;
       const row = Math.floor(i / upgradeCols);
-      this.buildUpgradeCard(upgrade, startX + col * stepX, 250 + row * (cardH + 18), cardW, cardH);
+      this.buildUpgradeCard(upgrade, startX + col * stepX, 236 + row * (cardH + 12), cardW, cardH);
     });
     this.dyn(this.add.text(width / 2, height - 20,
       'Temaer vælges inde på værelserne',
@@ -200,13 +199,11 @@ export class ShopScene extends BaseScene {
         audio.denied();
         const message = `Du mangler ${short} ${short === 1 ? 'stjerne' : 'stjerner'}`;
         showToast(this, x, y - h / 2 - 8, message, '#B9584A');
-        speak(message);
         return;
       }
       audio.purchase();
       showSparkle(this, x, y, w, h);
       showToast(this, x, y - h / 2 - 8, `${upgrade.name} er købt!`, '#4A7F33');
-      speak(`${upgrade.name} er købt`);
       this.events.emit('starsChanged', gameState.stars);
       this.refresh();
     });
@@ -271,13 +268,11 @@ export class ShopScene extends BaseScene {
         audio.denied();
         const message = `Du mangler ${short} ${short === 1 ? 'stjerne' : 'stjerner'}`;
         showToast(this, x, y - h / 2 - 8, message, '#B9584A');
-        speak(message);
         return;
       }
       audio.purchase();
       showSparkle(this, x, y, w, h);
       showToast(this, x, y - h / 2 - 8, `${item.name} er købt!`, '#4A7F33');
-      speak(`${item.name} er købt`);
       this.events.emit('starsChanged', gameState.stars);
       this.refresh();
     });

@@ -8,8 +8,9 @@ type Tally = { contexts: number; oscillators: number; buffers: number; pitches: 
 /**
  * Test harness for driving the Phaser canvas.
  *
- * Everything goes through game coordinates (960x600) rather than screen pixels, so a
- * different viewport does not silently move every click target.
+ * Everything goes through game coordinates (GAME_WIDTH x GAME_HEIGHT, read from the game's
+ * own config) rather than screen pixels, so neither a different viewport nor a change to the
+ * logical stage size silently moves every click target.
  */
 export class Game {
   readonly errors: string[] = [];
@@ -226,6 +227,51 @@ export class Game {
     return expect.poll(() => this.visibleText(sceneKey), { timeout: 12_000, message });
   }
 
+  /**
+   * The same labels joined into one string, for asserting on a fragment.
+   *
+   * `expectScreen(...).toContain('x')` matches a whole label, which is the right thing most
+   * of the time — but a line like "Gæst 0 ventede for længe — ingen stjerne" is half guest
+   * name, and a test should not have to restate the name to check the sentence.
+   */
+  expectScreenText(sceneKey: string, message?: string) {
+    return expect.poll(
+      async () => (await this.visibleText(sceneKey)).join(' | '),
+      { timeout: 12_000, message }
+    );
+  }
+
+  /**
+   * Taps without waiting for the scene to settle.
+   *
+   * A toast lives about two seconds and then destroys itself, and `settle()` deliberately
+   * waits for exactly that kind of one-shot tween — so anything read after a normal `tap()`
+   * has already gone. Use this, assert, then `settle()`.
+   */
+  async tapWithoutSettling(gx: number, gy: number): Promise<void> {
+    const box = await this.page.locator('canvas').boundingBox();
+    if (!box) throw new Error('canvas not found');
+    await this.page.mouse.click(
+      box.x + (gx / GAME_WIDTH) * box.width,
+      box.y + (gy / GAME_HEIGHT) * box.height
+    );
+  }
+
+  /**
+   * The area badges on the map: what each says, and where it sits.
+   *
+   * Asserting on the labels alone is not enough — "1" is also what the star counter says
+   * with one star — so a test that cares which *area* is flagged needs the position too.
+   */
+  async mapBadges(): Promise<{ x: number; y: number; label: string }[]> {
+    return this.page.evaluate(() => {
+      const scene = window.__game.scene.getScene('HotelMapScene') as any;
+      return (scene.hud?.list ?? [])
+        .filter((o: any) => o.type === 'Text')
+        .map((o: any) => ({ x: o.x, y: o.y, label: o.text }));
+    });
+  }
+
   /** Reads a live field off a running scene — used to prove state is not being reset. */
   async sceneField<T>(sceneKey: string, field: string): Promise<T> {
     return this.page.evaluate(
@@ -234,10 +280,69 @@ export class Game {
     );
   }
 
+  /**
+   * Winds one guest's clock back.
+   *
+   * Patience is measured in real time, and a save cannot arrive with it already spent — the
+   * game deliberately rewinds every guest's clock on load, so that closing the game is never
+   * charged to the player. Reaching a grumpy guest in a test therefore means moving the clock
+   * rather than seeding one. `GameState` is a module singleton, and the dev server hands the
+   * page the very same instance the game is running on.
+   */
+  async ageGuest(id: number, byMs: number): Promise<void> {
+    await this.page.evaluate(async ([url, guestId, back]) => {
+      const mod: any = await import(/* @vite-ignore */ url as string);
+      const guest = mod.gameState.guests.find((g: any) => g.id === guestId);
+      if (!guest) throw new Error(`no guest ${guestId}`);
+      guest.since -= back as number;
+      mod.gameState.tickGuests();
+    }, ['/src/state/GameState.ts', id, byMs] as const);
+    // the scene picks the change up on its next guest tick
+    await this.page.waitForTimeout(700);
+    await this.settle();
+  }
+
+  /**
+   * Cooks one dish: pick the first recipe, fill the pot, light the stove.
+   *
+   * The stove is the kitchen's one paid job, so this is also the most repeatable way to
+   * raise a task — useful for anything that needs several tasks in a row.
+   */
+  async cookDish(): Promise<void> {
+    await this.tap(AT.kitchen.recipe1.x, AT.kitchen.recipe1.y);
+    for (const ing of [AT.kitchen.ingredient1, AT.kitchen.ingredient2, AT.kitchen.ingredient3]) {
+      await this.tap(ing.x, ing.y);
+    }
+    await this.tap(AT.kitchen.cook.x, AT.kitchen.cook.y);
+  }
+
   /* ------------------------------------------------------------- tasks --- */
 
   async taskOpen(): Promise<boolean> {
     return (await this.activeScenes()).includes('TaskOverlayScene');
+  }
+
+  /**
+   * How many wrong answers the open task has left.
+   *
+   * A task closes without paying on the third miss, so a test about that consequence has to
+   * be able to see the count go down.
+   */
+  async triesLeft(): Promise<number> {
+    return this.page.evaluate(() => {
+      const scene = window.__game.scene.getScene('TaskOverlayScene') as any;
+      if (!scene?.scene.isActive()) throw new Error('no task open');
+      return 3 - scene.attempts;
+    });
+  }
+
+  async waitForTaskToClose(timeout = 20_000): Promise<void> {
+    await this.page.waitForFunction(
+      () => !window.__game.scene.getScenes(true).some(s => s.scene.key === 'TaskOverlayScene'),
+      undefined,
+      { timeout }
+    );
+    await this.settle();
   }
 
   /** The overlay launches behind a short delay, so poll rather than check once. */
@@ -492,6 +597,63 @@ export class Game {
     return skills;
   }
 
+  /**
+   * A guest, in whatever situation a test needs them in.
+   *
+   * Guest state is the biggest thing in the save now — a plan, a step, a place, a clock and
+   * an order — and every test that wants somebody waiting at the pool would otherwise have
+   * to restate all of it. `since` is deliberately left at zero: the game rewinds every
+   * guest's clock to "now" on load, so a save cannot arrive with the patience already spent.
+   */
+  static guest(id: number, patch: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id,
+      name: `Gæst ${id}`,
+      color: 0x7FAEDD,
+      roomNumber: null,
+      checkedIn: false,
+      plan: ['pool', 'restaurant', 'room'],
+      step: 0,
+      at: 'lobby',
+      since: 0,
+      settledAt: null,
+      gaveUp: false,
+      lounger: null,
+      order: [],
+      served: [],
+      ...patch,
+    };
+  }
+
+  /** A guest checked into room 0 and standing somewhere, waiting for the player. */
+  static guestWaitingAt(
+    at: 'pool' | 'restaurant' | 'room' | 'checkout',
+    patch: Record<string, unknown> = {}
+  ): { guests: Record<string, unknown>[]; rooms: Record<string, unknown>[]; nextGuestId: number } {
+    const plan: string[] = at === 'checkout' ? ['pool', 'restaurant', 'room'] : [at];
+    return {
+      guests: [Game.guest(0, {
+        checkedIn: true,
+        roomNumber: 0,
+        plan,
+        step: at === 'checkout' ? plan.length : 0,
+        at,
+        order: at === 'restaurant' ? ['Suppe'] : [],
+        ...patch,
+      })],
+      rooms: Array.from({ length: 3 }, (_, i) => ({
+        bedMade: false, curtainsOpen: false, flowersPlaced: false,
+        vacuumed: false, towelsFolded: false, guestId: i === 0 ? 0 : null, theme: i,
+      })),
+      nextGuestId: 1,
+    };
+  }
+
+  /** The guests in the save, which is where the whole day is recorded. */
+  async guests(): Promise<any[]> {
+    return (await this.save())?.guests ?? [];
+  }
+
   /** Seeds a save before the page loads, to reach a state without grinding for it. */
   static async openWithSave(page: Page, patch: Record<string, unknown>): Promise<Game> {
     const game = new Game(page);
@@ -500,20 +662,21 @@ export class Game {
     await page.addInitScript((seed) => {
       window.localStorage.setItem('sommer-hotellet-save', JSON.stringify(seed));
     }, {
-      version: 3,
+      version: 4,
       stars: 0,
       guests: [],
       rooms: Array.from({ length: 3 }, (_, i) => ({
         bedMade: false, curtainsOpen: false, flowersPlaced: false,
         vacuumed: false, towelsFolded: false, guestId: null, theme: i,
       })),
-      kitchen: { recipe: null, added: [], showingDining: false, dishesServed: 0 },
+      kitchen: { recipe: null, added: [], showingDining: false, ready: [], dishesServed: 0 },
       pool: { towels: [false, false, false, false] },
       garden: { flowers: [false, false, false, false, false], sandcastle: 0, apples: [false, false, false, false, false] },
       nextGuestId: 0,
       owned: [],
-      // music off by default in tests: a continuous pad would pollute the audio counts
-      settings: { mode: 'leg', matematik: true, dansk: true, speak: false, sound: true, music: false },
+      // Music and guest voices off by default in tests: a continuous pad and a babbling
+      // guest would both pollute the audio counts.
+      settings: { mode: 'leg', matematik: true, dansk: true, voices: false, sound: true, music: false },
       skills: {},
       ...patch,
     });
@@ -543,15 +706,16 @@ const SCENE_FOR_AREA = {
 
 /** Game-coordinate click targets, kept next to the scenes they belong to. */
 export const AT = {
-  playButton: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.86 },
-  back: { x: 52, y: 38 },
+  playButton: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.82 },
+  exitButton: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.93 },
+  back: { x: 56, y: 34 },
 
   map: {
     lobby: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.55 },
-    rooms: { x: GAME_WIDTH / 2 - 212, y: GAME_HEIGHT * 0.38 },
-    kitchen: { x: GAME_WIDTH / 2 + 212, y: GAME_HEIGHT * 0.38 },
-    pool: { x: GAME_WIDTH / 2 - 190, y: GAME_HEIGHT * 0.79 },
-    garden: { x: GAME_WIDTH / 2 + 190, y: GAME_HEIGHT * 0.79 },
+    rooms: { x: GAME_WIDTH / 2 - 200, y: GAME_HEIGHT * 0.37 },
+    kitchen: { x: GAME_WIDTH / 2 + 200, y: GAME_HEIGHT * 0.37 },
+    pool: { x: GAME_WIDTH / 2 - 178, y: GAME_HEIGHT * 0.79 },
+    garden: { x: GAME_WIDTH / 2 + 178, y: GAME_HEIGHT * 0.79 },
   },
 
   room: {
@@ -560,20 +724,26 @@ export const AT = {
     vase: { x: 126, y: GAME_HEIGHT * 0.52 },
     towels: { x: GAME_WIDTH / 2 + 212, y: GAME_HEIGHT * 0.6 },
     vacuum: { x: GAME_WIDTH - 176, y: GAME_HEIGHT * 0.85 },
-    tab2: { x: GAME_WIDTH / 2, y: 38 },
+    tab1: { x: GAME_WIDTH / 2 - 98, y: 34 },
+    tab2: { x: GAME_WIDTH / 2, y: 34 },
   },
 
   kitchen: {
-    toggle: { x: 190, y: 38 },
-    recipe1: { x: 168, y: 132 },
-    ingredient1: { x: GAME_WIDTH / 2 - 208, y: GAME_HEIGHT * 0.82 },
-    ingredient2: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.82 },
-    ingredient3: { x: GAME_WIDTH / 2 + 208, y: GAME_HEIGHT * 0.82 },
+    toggle: { x: 200, y: 34 },
+    recipe1: { x: 110, y: 132 },
+    recipe2: { x: 315, y: 132 },
+    ingredient1: { x: GAME_WIDTH / 2 - 200, y: GAME_HEIGHT * 0.8 },
+    ingredient2: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.8 },
+    ingredient3: { x: GAME_WIDTH / 2 + 200, y: GAME_HEIGHT * 0.8 },
+    cook: { x: GAME_WIDTH / 2, y: GAME_HEIGHT - 32 },
+    table1: { x: GAME_WIDTH * 0.24, y: GAME_HEIGHT * 0.38 },
   },
 
   pool: {
-    lounger1: { x: 92, y: GAME_HEIGHT * 0.5 },
-    lounger2: { x: 92, y: GAME_HEIGHT * 0.73 },
+    lounger1: { x: 88, y: GAME_HEIGHT * 0.44 },
+    lounger2: { x: 88, y: GAME_HEIGHT * 0.72 },
+    lounger3: { x: GAME_WIDTH - 88, y: GAME_HEIGHT * 0.58 },
+    lounger4: { x: GAME_WIDTH - 88, y: GAME_HEIGHT * 0.86 },
   },
 
   garden: {
@@ -582,21 +752,23 @@ export const AT = {
   },
 
   lobby: {
-    bell: { x: GAME_WIDTH / 2 + 108, y: GAME_HEIGHT * 0.615 },
-    guest1: { x: 150, y: GAME_HEIGHT * 0.72 },
+    bell: { x: GAME_WIDTH / 2 + 104, y: GAME_HEIGHT * 0.588 },
+    guest1: { x: 118, y: GAME_HEIGHT * 0.72 },
+    guest2: { x: 246, y: GAME_HEIGHT * 0.72 },
+    leaving1: { x: GAME_WIDTH - 128, y: GAME_HEIGHT * 0.76 },
   },
 
-  shop: { x: GAME_WIDTH - 74, y: 84 },
+  shop: { x: GAME_WIDTH - 74, y: 86 },
   shopTabThings: { x: GAME_WIDTH / 2 - 95, y: 140 },
   shopTabHotel: { x: GAME_WIDTH / 2 + 95, y: 140 },
-  settings: { x: 52, y: 84 },
-  settingsModeLaer: { x: GAME_WIDTH / 2 + 158, y: 158 },
-  settingsModeLeg: { x: GAME_WIDTH / 2 - 158, y: 158 },
+  settings: { x: 56, y: 86 },
+  settingsModeLaer: { x: GAME_WIDTH / 2 + 158, y: 144 },
+  settingsModeLeg: { x: GAME_WIDTH / 2 - 158, y: 144 },
 
-  // the toggle grid, laid out 2x2
-  toggleMath: { x: GAME_WIDTH / 2 - 134, y: 236 },
-  toggleDansk: { x: GAME_WIDTH / 2 + 134, y: 236 },
-  toggleSound: { x: GAME_WIDTH / 2 - 134, y: 286 },
-  toggleSpeak: { x: GAME_WIDTH / 2 + 134, y: 286 },
-  toggleMusic: { x: GAME_WIDTH / 2 - 134, y: 336 },
+  // the toggle grid, laid out two to a row
+  toggleMath: { x: GAME_WIDTH / 2 - 134, y: 210 },
+  toggleDansk: { x: GAME_WIDTH / 2 + 134, y: 210 },
+  toggleSound: { x: GAME_WIDTH / 2 - 134, y: 258 },
+  toggleVoices: { x: GAME_WIDTH / 2 + 134, y: 258 },
+  toggleMusic: { x: GAME_WIDTH / 2 - 134, y: 306 },
 } as const;

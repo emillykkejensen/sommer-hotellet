@@ -1,17 +1,21 @@
 # Sommer Hotellet
 
-Et roligt hotelspil for børn — byg, ryd op, og tag imod gæster. Ingen tid, ingen point
-at tabe, ingen måde at gøre noget forkert.
+Et hotelspil for børn — tag imod gæster, lav mad, gør værelserne klar. Ingen point at
+tabe, ingen måde at ødelægge noget.
 
-A calm hotel game for children (roughly ages 4–8), in Danish. Run the reception, make up
-the rooms, cook in the kitchen, lay towels by the pool and tend the garden. Nothing is
-timed and nothing can be lost.
+A hotel game for children (roughly ages 4–8), in Danish. Run the reception, make up the
+rooms, cook in the kitchen, lay towels by the pool and tend the garden.
+
+Guests are the game. Each one checks in, walks a plan of their own — pool, restaurant, room,
+in a random order — and waits at each stop for you to do the job that lets them get on with
+their day. Keep somebody waiting too long and they get grumpy and the star goes unearned:
+nothing is ever taken away, but not everything is given either.
 
 Two modes, set on the grown-up screen:
 
 - **Leg** — free play. Every job pays a star.
-- **Lær** — the same jobs, but each one raises a short maths or Danish task, and the task
-  pays the stars. Stars buy things for the hotel, which is what makes counting to seven
+- **Lær** — the same jobs, but a finished job raises a short maths or Danish task, and the
+  task pays the stars. Stars buy things for the hotel, which is what makes counting to seven
   worth doing.
 
 ## Running it
@@ -37,6 +41,17 @@ with Web Audio — there are no image or audio assets, so the game loads instant
 colour lives in one palette. Nunito is bundled as a 38 KB variable font rather than fetched,
 so the game makes no network requests at all once it is loaded. A test asserts that.
 
+### Scale
+
+`GAME_WIDTH`/`GAME_HEIGHT` in `config.ts` are 880×550, and the canvas is scaled to FIT
+whatever it is given — so those two numbers are really a zoom control: a smaller logical
+stage means every drawn shape and every label covers more of the screen. They were 960×600,
+which put the body text at around 3 mm tall on a phone held at arm's length by a
+five-year-old. Shrinking the stage ~9% and putting the `SIZE` type scale up ~12% on top of it
+lands everything about a fifth bigger without redrawing a single shape.
+
+Keep the 1.6 aspect ratio if you change them, or the game letterboxes instead of zooming.
+
 ## On a phone
 
 Every push to `main` that passes the tests builds an Android APK and puts it on the
@@ -44,11 +59,11 @@ Every push to `main` that passes the tests builds an Android APK and puts it on 
 same web build inside a Capacitor shell, so it plays offline, needs no system permissions —
 not even internet access — and runs on Android 7 or newer.
 
-The wrapper adds the six things a WebView does not give for free: read-aloud through
-Android's own text-to-speech (a WebView has no `speechSynthesis` at all), landscape lock,
+The wrapper adds the five things a WebView does not give for free: landscape lock,
 immersive fullscreen, the hardware back button, keep-awake, and a copy of the save in native
-storage. All six are tested in a browser by reproducing the conditions, in
-`tests/native.spec.ts`.
+storage. It also has the only working exit — an immersive WebView has no system bars and no
+address bar, so the title screen's **Afslut** button is the way out. All of it is tested in
+a browser by reproducing the conditions, in `tests/native.spec.ts`.
 
 **[docs/ANDROID.md](docs/ANDROID.md)** covers the signing keys, the four repository secrets
 and how to build one locally.
@@ -59,7 +74,8 @@ and how to build one locally.
 src/
   config.ts              palette, type scale, room themes, shared depths
   main.ts                Phaser game config and scene list
-  state/GameState.ts     all persisted progress; the single source of truth
+  state/GameState.ts     all persisted progress, and the guest clock; the single source of truth
+  state/Menu.ts          the four recipes, and what a guest orders from them
   state/Shop.ts          the decoration catalogue, and how each piece is drawn
   tasks/
     types.ts             Task, TaskBody, Figure, the skill list
@@ -69,29 +85,32 @@ src/
   scenes/
     BaseScene.ts         the three-layer background/dynamic/effects pattern
     BootScene.ts         waits for the webfont, then hands over to the menu
-    MainMenuScene.ts     title screen and "start forfra"
-    HotelMapScene.ts     the hub; five areas, the shop, the grown-up screen
-    LobbyScene.ts        bell, guests, check-in, key board
-    RoomScene.ts         three rooms, five chores each
-    KitchenScene.ts      recipes, ingredients, dining room
+    MainMenuScene.ts     title screen, and the way out of the game
+    HotelMapScene.ts     the hub; five areas, the shop, the grown-up screen, waiting badges
+    LobbyScene.ts        bell, check-in, check-out, key board
+    RoomScene.ts         three rooms, five chores each, and the guest asleep in one
+    KitchenScene.ts      recipes, the stove, the pass — and the restaurant, where you serve
     PoolScene.ts         loungers, slide, drinks
     GardenScene.ts       flower bed, sandbox, swing, apple tree
     ShopScene.ts         spend stars; also places bought pieces into the scenes
-    SettingsScene.ts     mode, subjects, read-aloud, progress, reset
+    SettingsScene.ts     mode, subjects, sound, guest voices, progress, reset
     TaskOverlayScene.ts  the task card, and its four interaction templates
   helpers/
     Draw.ts              shared shapes: panels, captions, buttons, people, scenery
     Motion.ts            prefers-reduced-motion handling
     Reward.ts            the single reward path every action goes through
-    Speech.ts            da-DK read-aloud
-    Audio.ts             synthesised sound effects
-  objects/FeedbackEffects.ts   star bursts, hearts, sparkles, toasts
+    Audio.ts             synthesised sound effects, music and guest gibberish
+  objects/
+    FeedbackEffects.ts   star bursts, hearts, sparkles, toasts
+    Guests.ts            what a guest says, their speech bubble and their patience bar
   ui/Chrome.ts           back button, star counter, scene titles
 tests/
   game.ts                canvas-driving harness, click targets, task solver, audio spy
   smoke.spec.ts          one test per scene
   learn.spec.ts          the shop and the task layer
+  guests.spec.ts         the guest's day: plans, orders, serving, patience
   sound.spec.ts          the audio contract
+  native.spec.ts         the conditions the Android build runs under
   tasks.spec.ts          every factory generates an answerable task
 ```
 
@@ -129,8 +148,55 @@ award(this);                          // grants the star and animates the counte
 Rewards are granted by the state transition, never by the tap, so nothing can be farmed
 by tapping the same object repeatedly.
 
-`gameState.reset()` clears everything; it is wired to "Start forfra" on the title screen and
-on the grown-up screen.
+`gameState.reset()` clears everything; it is wired to "Start forfra" on the grown-up screen.
+
+### The guest's day
+
+A guest is a small state machine, and `GameState` owns all of it.
+
+```ts
+plan: ['restaurant', 'room', 'pool']   // shuffled per guest
+step: 0                                // how far along
+at:   'restaurant'                     // where they are standing
+since: 1690000000000                   // when they got there and started waiting
+settledAt: null                        // when what they wanted arrived
+gaveUp: false                          // patience spent, star forfeit
+order: ['Suppe', 'Is']                 // what they asked for at the table
+served: ['Suppe']                      // what has been carried out
+```
+
+Each stop has one need, and each need is met by a player action in a different scene:
+
+| Stop | What they want | What the player does | Where |
+| --- | --- | --- | --- |
+| — | a key | tap the guest at the desk | Lobbyen |
+| `pool` | a lounger with a towel on it | lay a towel | Poolen |
+| `restaurant` | everything on their order | cook it, then carry it out | Køkkenet → Restauranten |
+| `room` | a room that is actually made up | all five chores | Værelserne |
+| — | to pay and go home | tap them at the desk | Lobbyen |
+
+Waiting has three phases, and they are the whole difficulty curve:
+
+- **waiting** — up to a minute (`PATIENCE_MS`; a restaurant order buys 25 s per extra dish,
+  because three dishes is three trips through the kitchen). Do the job inside this and it
+  pays.
+- **impatient** — 30 s more. The bubble turns pink and shakes, the patience bar empties, and
+  the job still has to be done — it just no longer pays. This is the consequence, and it is
+  deliberately not a punishment: nothing is taken away, a star is simply not earned.
+- **happy** — 12 s of swimming, eating or sleeping, then they move on to the next stop.
+
+A guest nobody helps **gives up on that stop and moves on** rather than blocking the hotel.
+That matters: a consequence that can deadlock the game is a bug, not a difficulty setting.
+
+`gameState.tickGuests()` moves every guest's clock on. `BaseScene` calls it twice a second
+and only calls `refresh()` when it reports something actually changed, so guests keep living
+their day while the player is in another room without a scene rebuilding at 2 Hz for nothing.
+`HotelMapScene` runs the same tick and turns it into a red badge over whichever area has
+somebody waiting — otherwise finding the guest who needs you means walking all five rooms.
+
+Patience is wall-clock time, so `load()` deliberately rewinds every guest's `since` to now.
+Closing the game is not a mistake a child should be charged for, and a save reopened the next
+morning would otherwise have the whole hotel storming out on the first tick.
 
 ### The reward path
 
@@ -142,8 +208,24 @@ rewardFor(this, 'garden', { after: () => this.refresh() });
 
 In Leg mode that awards a star. In Lær mode the action has *already* happened — the flower
 is watered, the bed is made — and then a task appears, phrased in the world, and pays the
-stars. Chores are free; tasks pay. `after` runs once the reward settles, so the scene
-refreshes at the right moment either way.
+stars. `after` runs once the reward settles, so the scene refreshes at the right moment
+either way.
+
+**A task is raised by a finished job, never by a tap.** Every chore used to raise one, which
+meant making up a single room asked five questions and cooking one bowl of soup asked three —
+the child was doing arithmetic to fetch a carrot. Taps pay a plain star; jobs ask:
+
+| Job | Task? |
+| --- | --- |
+| check a guest in | yes |
+| cook a dish (the whole recipe, at the stove) | yes |
+| finish a room a guest is waiting to sleep in | yes |
+| lay the towel that seats a waiting guest | yes |
+| finish the flower bed, the sandcastle, the apple basket | yes |
+| one chore, one ingredient, one towel, one apple | no — a plain star |
+| carry a dish out to the guest who ordered it | no — a plain star, and the payoff |
+
+That is roughly one question per guest per stop, against one per tap before.
 
 ### Tasks
 
@@ -215,9 +297,15 @@ permanently unreachable in some scenes.
 Difficulty moves on its own: three right in a row promotes, two wrong demotes
 (`GameState.recordAttempt`). The level is never shown to the child.
 
-**There is no fail state.** A wrong answer wobbles the object, speaks a hint, and takes one
-wrong option off the board. The child always finishes and always leaves with at least one
-star; only a first-try answer counts as mastery for the level machinery.
+**Three tries.** A wrong answer wobbles the object, shows a hint, takes one wrong option off
+the board, and costs a try — three pips on the card say so from the moment it opens. Right
+first time pays in full, a stumble pays less, and running out of tries closes the card
+without paying. Only a first-try answer counts as mastery for the level machinery.
+
+There is still no fail state in the sense that matters: nothing is taken away, the chore that
+raised the task has already happened, and the hotel is never rolled back. But there is now a
+cost to not reading the question — before this, tapping every option in turn always worked
+and always paid, so the fastest way through a task was to ignore it.
 
 ### Sound and music
 
@@ -254,23 +342,33 @@ under the effects, has its own toggle, and `sound` is the master switch above it
 Tests seed `music: false`, because a continuous pad would show up in the Web Audio node
 counts that the sound tests assert on.
 
-### Read-aloud
+### Guest voices
 
-`helpers/Speech.ts` speaks every prompt in Danish via `speechSynthesis`. If no `da-*` voice
-exists it stays silent rather than reading Danish with an English voice, and the grown-up
-screen hides the toggle when the browser cannot speak at all.
+Guests babble. Not Danish — nonsense syllables, the way people did on the phone in the
+original GTA.
 
-Two details make the difference between usable and irritating:
+```ts
+audio.babble(5, guestVoice(guest));   // a sentence's worth
+audio.grumble(guestVoice(guest));     // a complaint: lower and slower
+```
 
-- **Voice choice.** `da-DK` beats a generic `da`, and a local voice beats a network one — a
-  network voice is usually better but stalls on a slow connection, and a prompt that arrives
-  two seconds late is worse than a flatter one that arrives now.
-- **Pacing.** The prompt is split at sentence punctuation and queued as separate
-  utterances, so "Der kommer 2 voksne og 3 børn. Hvor mange nøgler skal du hente?" reads as
-  two sentences rather than one breathless run. Longer prompts get a slower rate.
+A sawtooth through a narrow bandpass is the cheapest thing that reads as a voice rather than
+a beep — the filter picks out a band the way a mouth does — and gliding both the pitch and
+the band across each syllable gives it the shape of a spoken sound. Syllable count comes from
+the length of the line, so a three-dish order sounds longer than "Godnat", and `guestVoice()`
+derives a pitch from the guest id, so Fru Hansen sounds like Fru Hansen every time.
 
-This is synthesis, not narration. A recorded voice would be warmer, but that is a few
-hundred audio files to write, record and ship.
+This replaced Danish `speechSynthesis` read-aloud, which is gone. Two reasons: on any device
+with a flat `da-DK` voice it sounded like a station announcement, and it was reading out text
+the target child cannot read anyway. Gibberish carries the same information a pre-reader
+actually needs — somebody is talking to you, and roughly how much they have to say — and it
+is funny, which a five-year-old cares about more than diction. A test asserts the game never
+reaches `speechSynthesis` at all.
+
+Lines are spoken **once per situation**, not once per redraw: `refresh()` rebuilds every
+guest whenever anything changes, and `objects/Guests.ts` keys the sound on
+`guest:place:step:phase` so a redraw is silent. Lines also queue — walking into a lobby with
+three guests in it plays three babbles in turn rather than one noise.
 
 ### The shop
 
@@ -325,8 +423,9 @@ await game.tap(AT.pool.lounger1.x, AT.pool.lounger1.y);
 await game.expectSave(s => s.pool.towels[0]).toBe(true);
 ```
 
-Click targets are expressed in **game coordinates** (960×600) in `tests/game.ts` and
-scaled to the canvas, so a different viewport does not move every target. When you move
+Click targets are expressed in **game coordinates** in `tests/game.ts`, read off
+`GAME_WIDTH`/`GAME_HEIGHT` rather than hardcoded, and scaled to the canvas — so neither a
+different viewport nor a change to the logical stage size moves every target. When you move
 something on screen, update its entry in `AT`.
 
 The harness can also drive a task end to end — it reads the live answer off the scene and
@@ -340,7 +439,13 @@ await game.expectSave(s => s.skills[skill].correct).toBe(1);
 ```
 
 `Game.openWithSave(page, patch)` seeds a save before the page loads, to reach a state
-without grinding for it.
+without grinding for it, and `Game.guestWaitingAt('pool')` seeds the whole guest-plus-room
+shape for the common case of somebody standing there waiting.
+
+Patience is the one thing a save cannot seed, because `load()` deliberately rewinds every
+guest's clock. `game.ageGuest(0, 70_000)` reaches a grumpy guest instead by winding the clock
+back on the live `GameState` — the dev server hands the page the very same module singleton
+the game is running on, so this drives the real code path rather than a copy of it.
 
 The task factories are pure generators, so `tasks.spec.ts` skips the UI entirely and pulls
 them straight off the dev server to exercise every one 60 times:
@@ -367,13 +472,17 @@ Not bugs, but worth knowing before picking up the next piece of work.
   (`MAX_ROOM_COUNT`) because the tabs and key board stop fitting beyond that; going further
   needs a different navigation, not another upgrade.
 - **Sixteen drawable nouns** caps the reading vocabulary. More needs more drawings.
-- **Read-aloud is synthesised**, not recorded. Better voice selection and pacing help, but a
-  real narrator would need audio files.
-- **The suite is slow in software rendering.** Around fifteen minutes with no GPU; roughly
-  ten on CI. `test.slow()` marks the one test that buys the whole catalogue.
-- **Read-aloud in the app depends on the phone.** Android's text-to-speech only has the
-  voices the device has installed; with no Danish one the speaker button goes quiet rather
-  than reading Danish in English.
+- **Nothing is read aloud.** Guests babble, but a task prompt is text, so a pre-reader needs
+  a grown-up nearby for the wordier ones. Recorded narration would fix it and would mean a
+  few hundred audio files.
+- **Patience is one number for everybody.** A four-year-old and a seven-year-old get the same
+  minute. It wants to be a setting on the grown-up screen.
+- **Guests only ever want three things.** The plan is a shuffle of pool, restaurant and room,
+  so every stay visits all three. Partial plans and repeat visits would vary it.
+- **The suite is slow in software rendering.** Around twenty minutes with no GPU; roughly
+  twelve on CI. `test.slow()` marks the one test that buys the whole catalogue.
+- **The exit button cannot close a browser tab.** No page can, so on the web it says goodbye
+  and offers to carry on; only the Android build actually exits.
 - **No iOS.** Capacitor would do it, but an IPA needs macOS and a paid Apple account.
 - **The Gradle build is only exercised on CI.** Nothing here builds an APK as part of `npm
   test`, so a change to `android/` is verified by the Android job, not locally.

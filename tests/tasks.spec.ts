@@ -161,16 +161,30 @@ test('every skill is reachable in at least one scene', async ({ page }) => {
 });
 
 test('the new templates can each be solved in the game', async ({ page }) => {
-  // Force one skill at a time so a known template comes up.
+  // Force one skill at a time so a known template comes up. Each case has to be set up on a
+  // *job*, not a tap: a lone towel or one scoop of sand no longer asks anything. The garden
+  // cases finish the sandcastle; the pool cases seat a guest who is waiting for a lounger.
   const cases = [
-    { skill: 'figurer', area: 'garden' as const, tap: AT.garden.sandbox, template: 'pick-image' },
-    { skill: 'sortering', area: 'pool' as const, tap: AT.pool.lounger1, template: 'put-in-order' },
-    { skill: 'tallinje', area: 'pool' as const, tap: AT.pool.lounger2, template: 'adjust' },
+    {
+      skill: 'figurer', area: 'garden' as const, tap: AT.garden.sandbox, template: 'pick-image',
+      seed: {
+        garden: { flowers: [false, false, false, false, false], sandcastle: 2, apples: Array(5).fill(false) },
+      },
+    },
+    {
+      skill: 'sortering', area: 'pool' as const, tap: AT.pool.lounger1, template: 'put-in-order',
+      seed: Game.guestWaitingAt('pool'),
+    },
+    {
+      skill: 'tallinje', area: 'pool' as const, tap: AT.pool.lounger1, template: 'adjust',
+      seed: Game.guestWaitingAt('pool'),
+    },
   ];
 
   for (const c of cases) {
     const game = await Game.openWithSave(page, {
-      settings: { mode: 'laer', matematik: true, dansk: true, speak: false, sound: false },
+      ...c.seed,
+      settings: { mode: 'laer', matematik: true, dansk: true, voices: false, sound: false },
       skills: Game.focusSkill(c.skill),
     });
     await game.start();
@@ -187,15 +201,14 @@ test('the new templates can each be solved in the game', async ({ page }) => {
 
 test('reading tasks show pictures, not the same word twice', async ({ page }) => {
   const game = await Game.openWithSave(page, {
-    settings: { mode: 'laer', matematik: false, dansk: true, speak: false, sound: false, music: false },
+    settings: { mode: 'laer', matematik: false, dansk: true, voices: false, sound: false, music: false },
     skills: Game.focusSkill('ordlæsning'),
   });
   await game.start();
   await game.enter('kitchen');
 
-  // selecting a recipe and adding an ingredient is the kitchen's reward action
-  await game.tap(AT.kitchen.recipe1.x, AT.kitchen.recipe1.y);
-  await game.tap(AT.kitchen.ingredient1.x, AT.kitchen.ingredient1.y);
+  // cooking a whole dish is the kitchen's job, and the only thing there that asks
+  await game.cookDish();
 
   expect(await game.waitForTask(), 'a reading task should appear').toBe(true);
   const solved = await game.solveTask();

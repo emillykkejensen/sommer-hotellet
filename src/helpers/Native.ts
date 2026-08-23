@@ -4,7 +4,6 @@ import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import { ScreenOrientation } from '@capacitor/screen-orientation';
 import { KeepAwake } from '@capacitor-community/keep-awake';
-import { TextToSpeech } from '@capacitor-community/text-to-speech';
 import { goBack } from './Navigation';
 
 /**
@@ -24,57 +23,22 @@ export function isNative(): boolean {
   }
 }
 
-/* ------------------------------------------------------------------ read-aloud --- */
+/* ----------------------------------------------------------------------- exit --- */
 
 /**
- * `speechSynthesis` does not exist in an Android WebView.
+ * Closes the app, where closing an app is a thing that exists.
  *
- * This is not a bug in the game: the Web Speech API has never been implemented in WebView
- * (only in Chrome proper), so `window.speechSynthesis` is `undefined` inside the app and
- * every prompt would go silent. Android's own text-to-speech engine is available through a
- * plugin, so on native we talk to that instead. Which Danish voices exist then depends on
- * what the phone has installed under Settings → Text-to-speech.
+ * Android has a hardware back button but no visible way out of a fullscreen, immersive
+ * WebView, so the title screen needs a button that does this. A browser tab cannot be
+ * closed by a script it did not open, so there the caller falls back to saying so.
  */
-let nativeVoiceChecked = false;
-let nativeDanish = false;
-
-export async function primeNativeSpeech(): Promise<void> {
-  if (!isNative() || nativeVoiceChecked) return;
-  nativeVoiceChecked = true;
-  try {
-    const { languages } = await TextToSpeech.getSupportedLanguages();
-    nativeDanish = languages.some(lang => lang.toLowerCase().startsWith('da'));
-  } catch {
-    nativeDanish = false;
-  }
+export function canExit(): boolean {
+  return isNative();
 }
 
-/** Whether the native engine has a Danish voice. Reading Danish aloud in English is worse
- * than staying quiet, so the same rule as the web path applies here. */
-export function canSpeakNative(): boolean {
-  return isNative() && nativeDanish;
-}
-
-export function speakNative(textToSay: string, rate: number): void {
-  if (!canSpeakNative()) return;
-  // Fire and forget: a prompt that fails to speak must never hold up the task.
-  TextToSpeech.stop()
-    .catch(() => undefined)
-    .then(() =>
-      TextToSpeech.speak({
-        text: textToSay,
-        lang: 'da-DK',
-        rate,
-        pitch: 1.05,
-        category: 'playback',
-      })
-    )
-    .catch(() => undefined);
-}
-
-export function stopSpeakingNative(): void {
+export function exitApp(): void {
   if (!isNative()) return;
-  TextToSpeech.stop().catch(() => undefined);
+  App.exitApp().catch(() => undefined);
 }
 
 /* ------------------------------------------------------------------- save file --- */
@@ -141,6 +105,4 @@ export async function setupNative(game: Phaser.Game): Promise<void> {
   } catch {
     // ignore
   }
-
-  await primeNativeSpeech();
 }

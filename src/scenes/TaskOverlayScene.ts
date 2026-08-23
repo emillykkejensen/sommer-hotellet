@@ -7,7 +7,6 @@ import { showCheckmark, showStarBurst, showToast } from '../objects/FeedbackEffe
 import { shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
 import { dur, reduceMotion } from '../helpers/Motion';
-import { speak, stopSpeaking } from '../helpers/Speech';
 
 export interface TaskOverlayData {
   task: Task;
@@ -18,11 +17,23 @@ export interface TaskOverlayData {
 const PATTERN_COLORS = [COLORS.pink, COLORS.sun, COLORS.water, COLORS.purple];
 
 /**
+ * How many wrong answers a task survives.
+ *
+ * The first version had no ceiling: a wrong tap cost nothing, so the fastest way through
+ * any task was to tap everything until something worked, and a child who did that learned
+ * only that tapping everything works. Three tries is the consequence — not a fail screen,
+ * not a lost life, and nothing taken away, just a task that closes without paying.
+ */
+const MAX_MISSES = 3;
+
+/**
  * The task layer. Launched with scene.launch() so the room stays visible behind it and no
  * scene is ever rebuilt.
  *
- * There is no fail state: a wrong tap wobbles, speaks a hint, and takes one wrong option
- * off the board. The child always finishes, and always gets at least one star.
+ * A wrong tap wobbles, shows a hint, and takes one wrong option off the board — and costs
+ * a try. Answering right on the first go pays in full; stumbling pays less; running out of
+ * tries pays nothing and closes the card. The chore that raised the task has already
+ * happened either way, so the hotel is never left broken by a wrong answer.
  */
 export class TaskOverlayScene extends Phaser.Scene {
   private task!: Task;
@@ -36,6 +47,7 @@ export class TaskOverlayScene extends Phaser.Scene {
   private panel!: Phaser.GameObjects.Container;
   private body!: Phaser.GameObjects.Container;
   private hint!: Phaser.GameObjects.Text;
+  private strikes!: Phaser.GameObjects.Container;
 
   constructor() {
     super({ key: 'TaskOverlayScene' });
@@ -95,7 +107,7 @@ export class TaskOverlayScene extends Phaser.Scene {
     }).setOrigin(0.5);
     this.panel.add(prompt);
 
-    this.addSpeakerButton(pw / 2 - 44, -ph / 2 + 37);
+    this.buildStrikes(pw / 2 - 52, -ph / 2 + 37);
 
     this.hint = this.add.text(0, ph / 2 - 34, '', text(SIZE.label, INK_SOFT, 'semibold'))
       .setOrigin(0.5);
@@ -110,34 +122,34 @@ export class TaskOverlayScene extends Phaser.Scene {
       this.tweens.add({ targets: this.panel, scale: 1, alpha: 1, duration: 260, ease: 'Back.easeOut' });
     }
 
-    this.time.delayedCall(dur(320), () => speak(this.task.spoken ?? this.task.prompt));
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, stopSpeaking);
   }
 
   private accent(): number {
     return this.task.subject === 'matematik' ? COLORS.water : COLORS.green;
   }
 
-  private addSpeakerButton(x: number, y: number): void {
-    const c = this.add.container(x, y);
-    const g = this.add.graphics();
-    g.fillStyle(this.accent(), 0.16);
-    g.fillCircle(0, 0, 21);
-    // speaker cone plus two waves
-    g.fillStyle(this.accent());
-    g.fillRoundedRect(-9, -5, 5, 10, 2);
-    g.fillTriangle(-4, -9, -4, 9, 3, 0);
-    g.lineStyle(2, this.accent(), 0.9);
-    g.beginPath();
-    g.arc(4, 0, 6, Phaser.Math.DegToRad(-55), Phaser.Math.DegToRad(55), false);
-    g.strokePath();
-    g.beginPath();
-    g.arc(4, 0, 10, Phaser.Math.DegToRad(-50), Phaser.Math.DegToRad(50), false);
-    g.strokePath();
-    c.add(g);
-    this.panel.add(c);
+  /**
+   * Tries left, as three pips.
+   *
+   * A consequence a child cannot see coming is just an unpleasant surprise, so the cost of
+   * a wrong answer is on the card from the moment it opens.
+   */
+  private buildStrikes(x: number, y: number): void {
+    this.strikes = this.add.container(x, y);
+    this.panel.add(this.strikes);
+    this.drawStrikes();
+  }
 
-    tappable(this, c, 44, 44, () => speak(this.task.spoken ?? this.task.prompt));
+  private drawStrikes(): void {
+    this.strikes.removeAll(true);
+    const left = MAX_MISSES - this.attempts;
+    for (let i = 0; i < MAX_MISSES; i++) {
+      const alive = i < left;
+      const pip = this.add.circle((i - 1) * 21, 0, alive ? 8 : 6,
+        alive ? this.accent() : COLORS.stone);
+      pip.setStrokeStyle(2, alive ? this.accent() : COLORS.stoneDeep, alive ? 1 : 0.5);
+      this.strikes.add(pip);
+    }
   }
 
   /* ------------------------------------------------------------- templates --- */
@@ -564,19 +576,52 @@ export class TaskOverlayScene extends Phaser.Scene {
   }
 
   private miss(hint: string): void {
+    if (this.finished) return;
     this.attempts++;
+    this.drawStrikes();
+
+    if (this.attempts >= MAX_MISSES) {
+      this.giveUp();
+      return;
+    }
+
     audio.nudge();
-    this.hint.setText(hint);
-    speak(hint);
+    const left = MAX_MISSES - this.attempts;
+    this.hint.setText(left === 1 ? `${hint} Du har ét forsøg tilbage.` : hint);
+  }
+
+  /**
+   * Out of tries. The card closes and pays nothing.
+   *
+   * Deliberately gentle in wording and in sound — the point is that the star did not
+   * happen, not that the child did something wrong.
+   */
+  private giveUp(): void {
+    if (this.finished) return;
+    this.finished = true;
+
+    gameState.recordAttempt(this.task.skill, false);
+    audio.denied();
+    this.hint.setText('Den var svær. Vi prøver en anden en næste gang.');
+    this.body.list.forEach(child => {
+      const c = child as Phaser.GameObjects.Container;
+      if (c.setAlpha) c.setAlpha(0.45);
+    });
+
+    this.time.delayedCall(dur(1400), () => {
+      const done = this.onDone;
+      this.scene.stop();
+      done({ correct: false, stars: 0 });
+    });
   }
 
   private succeed(): void {
     if (this.finished) return;
     this.finished = true;
 
-    // First time right pays in full; after a stumble it still pays, just less. There is
-    // no zero — the child always leaves a task better off than they arrived.
-    const stars = this.attempts === 0 ? this.task.reward : Math.max(1, this.task.reward - 1);
+    // First time right pays in full; after a stumble it pays less. Running out of tries
+    // pays nothing, but that path never reaches here.
+    const stars = Math.max(1, this.task.reward - this.attempts);
     const firstTry = this.attempts === 0;
 
     gameState.recordAttempt(this.task.skill, firstTry);
@@ -585,11 +630,9 @@ export class TaskOverlayScene extends Phaser.Scene {
     audio.success();
     showCheckmark(this, this.scale.width / 2, this.scale.height / 2 + 30);
     showStarBurst(this, this.scale.width / 2, this.scale.height / 2 - 20, 6);
-    speak(firstTry ? 'Rigtigt!' : 'Rigtigt. Godt du blev ved.');
 
     this.time.delayedCall(dur(900), () => {
       const done = this.onDone;
-      stopSpeaking();
       this.scene.stop();
       done({ correct: firstTry, stars });
     });

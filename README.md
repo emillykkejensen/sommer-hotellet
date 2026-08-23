@@ -188,6 +188,11 @@ Waiting has three phases, and they are the whole difficulty curve:
 A guest nobody helps **gives up on that stop and moves on** rather than blocking the hotel.
 That matters: a consequence that can deadlock the game is a bug, not a difficulty setting.
 
+The same rule applies to the kitchen. A cooked dish goes on the *pass* (`kitchen.ready`) and
+stays there until somebody carries it out, and the pass holds six — so cooking six bowls of
+soup nobody ordered would otherwise stop the stove until a guest happened to want soup.
+Tapping a plate on the pass scrapes it, which pays nothing and costs nothing.
+
 `gameState.tickGuests()` moves every guest's clock on. `BaseScene` calls it twice a second
 and only calls `refresh()` when it reports something actually changed, so guests keep living
 their day while the player is in another room without a scene rebuilding at 2 Hz for nothing.

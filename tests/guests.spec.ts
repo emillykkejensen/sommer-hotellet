@@ -13,8 +13,6 @@ import { AT, Game } from './game';
  * making somebody wait costs the star rather than costing nothing.
  */
 
-const GAME_STATE = '/src/state/GameState.ts';
-
 /** Long enough to have run out of patience, short of walking away. */
 const IMPATIENT_MS = 70_000;
 /** Past the grumpy window too, so the guest gives up on this stop entirely. */
@@ -49,17 +47,17 @@ test('plans are not all the same', async ({ page }) => {
   const game = await Game.open(page);
   await game.start();
 
-  const plans = await page.evaluate(async (url) => {
-    const mod: any = await import(/* @vite-ignore */ url);
+  const plans = await page.evaluate(() => {
+    const state = window.__state;
     const seen = new Set<string>();
     for (let i = 0; i < 60; i++) {
-      mod.gameState.guests = [];
-      const guest = mod.gameState.createGuest();
-      seen.add(guest.plan.join('>'));
+      state.guests = [];
+      const guest = state.createGuest();
+      seen.add(guest!.plan.join('>'));
     }
-    mod.gameState.guests = [];
+    state.guests = [];
     return [...seen];
-  }, GAME_STATE);
+  });
 
   expect(plans.length, 'guests should not all want the same day').toBeGreaterThan(2);
   for (const plan of plans) {

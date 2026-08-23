@@ -284,23 +284,27 @@ export class Game {
    * Winds one guest's clock back.
    *
    * Patience is measured in real time, and a save cannot arrive with it already spent — the
-   * game deliberately rewinds every guest's clock on load, so that closing the game is never
-   * charged to the player. Reaching a grumpy guest in a test therefore means moving the clock
-   * rather than seeding one. `GameState` is a module singleton, and the dev server hands the
-   * page the very same instance the game is running on.
+   * game deliberately rewinds every guest's clock on load, so closing the game is never
+   * charged to the player. Reaching a grumpy guest therefore means moving the clock.
+   *
+   * It goes through `window.__state`, not a dynamic `import()` of GameState.ts. Vite hands
+   * the page its *own* instance of that module: mutating it changes a second, unwatched copy
+   * of the hotel, which the game never reads and no scene ever draws. That cost an afternoon,
+   * so it is written down here.
+   *
+   * The clock is only wound back — never ticked. A scene redraws when its own tick reports a
+   * change, so a helper that consumed the change itself would leave the guest grumpy in the
+   * save and still smiling on screen.
    */
   async ageGuest(id: number, byMs: number): Promise<void> {
-    await this.page.evaluate(async ([url, guestId, back]) => {
-      const mod: any = await import(/* @vite-ignore */ url as string);
-      const guest = mod.gameState.guests.find((g: any) => g.id === guestId);
+    await this.page.evaluate(([guestId, back]) => {
+      const guest = window.__state.guests.find(g => g.id === guestId);
       if (!guest) throw new Error(`no guest ${guestId}`);
-      guest.since -= back as number;
-    }, ['/src/state/GameState.ts', id, byMs] as const);
+      guest.since -= back;
+    }, [id, byMs] as const);
 
-    // Deliberately not calling tickGuests() here: the scene redraws when *its* tick reports
-    // a change, so a helper that consumed the change itself would leave the guest grumpy in
-    // the save and still smiling on screen.
-    await this.page.waitForTimeout(1_400);
+    // Two guest ticks' worth of slack: under software WebGL a 500 ms loop can take a second.
+    await this.page.waitForTimeout(2_500);
     await this.settle();
   }
 
@@ -695,6 +699,8 @@ export class Game {
 declare global {
   interface Window {
     __game: import('phaser').Game;
+    /** The live GameState singleton — see `ageGuest` for why this is not a dynamic import. */
+    __state: typeof import('../src/state/GameState').gameState;
   }
 }
 

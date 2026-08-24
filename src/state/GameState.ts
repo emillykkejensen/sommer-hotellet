@@ -1,5 +1,10 @@
 export type Chore = 'bedMade' | 'curtainsOpen' | 'flowersPlaced' | 'vacuumed' | 'towelsFolded';
 
+export const CHORES: Chore[] = ['bedMade', 'curtainsOpen', 'flowersPlaced', 'vacuumed', 'towelsFolded'];
+
+/** The five areas on the hotel map. */
+export type Area = 'lobby' | 'rooms' | 'kitchen' | 'pool' | 'garden';
+
 export interface GuestData {
   id: number;
   name: string;
@@ -43,6 +48,8 @@ export const FLOWER_COUNT = 5;
 export const APPLE_COUNT = 5;
 export const SANDCASTLE_STAGES = 3;
 export const MAX_WAITING_GUESTS = 3;
+/** Every recipe has the same number of ingredients; the map's counter relies on it. */
+export const RECIPE_STEPS = 3;
 
 const GUEST_NAMES = [
   'Hr. Jensen', 'Fru Hansen', 'Familien Pedersen', 'Fru Larsen',
@@ -245,6 +252,40 @@ class GameState {
 
   allApplesPicked(): boolean {
     return this.garden.apples.every(a => a);
+  }
+
+  // ---------- what still wants doing ----------
+
+  /**
+   * How many jobs are left in an area.
+   *
+   * Derived, never stored — it is a read of the same state the scenes draw from, so it
+   * cannot drift out of sync with them. The hotel map uses it to put a number on each
+   * area, which is what turns five identical buttons into a place with things going on.
+   */
+  todoIn(area: Area): number {
+    switch (area) {
+      case 'lobby':
+        // Either there are guests to check in, or the bell is worth ringing.
+        return this.getWaitingGuests().length > 0
+          ? this.getWaitingGuests().length
+          : (this.hasFreeRoom() ? 1 : 0);
+
+      case 'rooms':
+        return this.rooms.reduce((sum, room) => sum + CHORES.filter(c => !room[c]).length, 0);
+
+      case 'kitchen':
+        if (!this.kitchen.recipe) return 1;
+        return RECIPE_STEPS - this.kitchen.added.length + 1;
+
+      case 'pool':
+        return this.pool.towels.filter(t => !t).length;
+
+      case 'garden':
+        return this.garden.flowers.filter(f => !f).length
+          + (SANDCASTLE_STAGES - this.garden.sandcastle)
+          + this.garden.apples.filter(a => !a).length;
+    }
   }
 
   // ---------- persistence ----------

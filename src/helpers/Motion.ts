@@ -46,3 +46,82 @@ export function press(
     onComplete: onClick,
   });
 }
+
+/**
+ * Entrance pop.
+ *
+ * Screens used to simply exist; every element was already in place before the camera
+ * finished fading in, which is what made them feel like documents rather than places.
+ * Popping the important things in on a short stagger costs nothing and reads as the
+ * screen assembling itself.
+ */
+export function popIn(
+  scene: Phaser.Scene,
+  target: Phaser.GameObjects.Container | Phaser.GameObjects.Text,
+  delay = 0,
+  from = 0.6
+): void {
+  if (reduceMotion()) return;
+  const to = target.scale;
+  target.setScale(to * from);
+  target.setAlpha(0);
+  scene.tweens.add({
+    targets: target,
+    scale: to,
+    alpha: 1,
+    duration: 340,
+    delay,
+    ease: 'Back.easeOut',
+  });
+}
+
+/** Slow vertical float. Used for anything that should feel weightless rather than placed. */
+export function bob(
+  scene: Phaser.Scene,
+  target: Phaser.GameObjects.GameObject & { y: number },
+  distance = 5,
+  duration = 2000,
+  delay = 0
+): Phaser.Tweens.Tween | null {
+  if (reduceMotion()) return null;
+  return scene.tweens.add({
+    targets: target,
+    y: target.y - distance,
+    duration,
+    delay,
+    yoyo: true,
+    repeat: -1,
+    ease: 'Sine.easeInOut',
+  });
+}
+
+/** A short happy shake — for something that has just been finished. */
+export function wobble(scene: Phaser.Scene, target: Phaser.GameObjects.Container): void {
+  if (reduceMotion()) return;
+  scene.tweens.add({
+    targets: target,
+    angle: { from: -5, to: 5 },
+    duration: 90,
+    yoyo: true,
+    repeat: 3,
+    onComplete: () => target.setAngle(0),
+  });
+}
+
+/**
+ * The "this is waiting for you" pulse.
+ *
+ * Only ever applied to one or two things per screen. Applied to everything it becomes
+ * noise, and a child stops being able to tell what the game is pointing at.
+ */
+export function pulse(scene: Phaser.Scene, target: Phaser.GameObjects.Container, amount = 1.06): void {
+  if (reduceMotion()) return;
+  scene.tweens.add({
+    targets: target,
+    scale: target.scale * amount,
+    duration: 850,
+    yoyo: true,
+    repeat: -1,
+    ease: 'Sine.easeInOut',
+  });
+}

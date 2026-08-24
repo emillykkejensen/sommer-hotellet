@@ -8,6 +8,7 @@ import { RoomScene } from './scenes/RoomScene';
 import { KitchenScene } from './scenes/KitchenScene';
 import { PoolScene } from './scenes/PoolScene';
 import { GardenScene } from './scenes/GardenScene';
+import { installAudioUnlock } from './helpers/AudioManager';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -31,6 +32,10 @@ const config: Phaser.Types.Core.GameConfig = {
     GardenScene,
   ],
 };
+
+// Browsers only let an AudioContext start inside a user gesture, so the sound engine
+// listens for the first tap anywhere on the page rather than trying to start itself.
+installAudioUnlock();
 
 const game = new Phaser.Game(config);
 

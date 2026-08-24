@@ -194,7 +194,7 @@ export const AT = {
   },
 
   kitchen: {
-    toggle: { x: 190, y: 38 },
+    toggle: { x: 222, y: 38 },
     recipe1: { x: 168, y: 132 },
     ingredient1: { x: GAME_WIDTH / 2 - 208, y: GAME_HEIGHT * 0.82 },
     ingredient2: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.82 },
@@ -212,7 +212,7 @@ export const AT = {
   },
 
   lobby: {
-    bell: { x: GAME_WIDTH / 2 + 108, y: GAME_HEIGHT * 0.615 },
-    guest1: { x: 150, y: GAME_HEIGHT * 0.72 },
+    bell: { x: GAME_WIDTH / 2 + 108, y: GAME_HEIGHT * 0.665 },
+    guest1: { x: 150, y: GAME_HEIGHT * 0.76 },
   },
 } as const;

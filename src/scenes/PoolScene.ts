@@ -1,14 +1,14 @@
 import Phaser from 'phaser';
-import { COLORS, SIZE, text } from '../config';
+import { COLORS, LINE, SIZE, text } from '../config';
 import { GuestData, gameState, LOUNGER_COUNT } from '../state/GameState';
 import { showHearts, showSparkle, showSplash, showStarBurst, showToast } from '../objects/FeedbackEffects';
 import { drawPatienceBar, drawSpeechBubble, guestLine, sayOnce } from '../objects/Guests';
 import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
 import { rewardFor } from '../helpers/Reward';
 import { placeDecorations } from './ShopScene';
-import { caption, drawHead, drawPerson, drawSun, gradientBand, shadow, tappable } from '../helpers/Draw';
+import { addBirds, caption, drawHead, drawPerson, drawSun, gradientBand, shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
-import { dur } from '../helpers/Motion';
+import { dur, reduceMotion } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
 
 export class PoolScene extends BaseScene {
@@ -35,8 +35,6 @@ export class PoolScene extends BaseScene {
     this.background.add(gradientBand(this, 0, height * 0.34, COLORS.skyLight, COLORS.sky));
     this.background.add(gradientBand(this, height * 0.3, height * 0.7, COLORS.sandLight, COLORS.sandDeep));
 
-    drawSun(this, 96, 118, 26);
-
     // scattered pebbles for texture
     const g = this.add.graphics();
     for (let i = 0; i < 26; i++) {
@@ -48,13 +46,25 @@ export class PoolScene extends BaseScene {
       );
     }
     this.background.add(g);
-    this.background.add(this.drawPool(width / 2, height * 0.53));
+    this.background.add(this.drawPoolBasin(width / 2, height * 0.53));
+  }
+
+  /**
+   * Scenery that moves under its own power, so it must not be baked into the background
+   * texture: the sun, the water surface, and the zone that turns a tap into a splash.
+   */
+  protected buildAmbient(): void {
+    const { width, height } = this.scale;
+    drawSun(this, 96, 118, 26);
+    addBirds(this, 2, 58, 32);
+    this.addWaterSurface(width / 2, height * 0.53);
+    this.amb(this.drawBeachBall(228, height * 0.33));
   }
 
   protected buildChrome(): void {
     addBackButton(this);
     addStarCounter(this);
-    addSceneTitle(this, 'Swimmingpoolen', '#3E96C4');
+    addSceneTitle(this, 'Swimmingpoolen', COLORS.water);
   }
 
   protected buildDynamic(): void {
@@ -85,7 +95,7 @@ export class PoolScene extends BaseScene {
       waiting === 0 && laid === LOUNGER_COUNT ? 'done' : 'idle'));
   }
 
-  private drawPool(cx: number, cy: number): Phaser.GameObjects.Container {
+  private drawPoolBasin(cx: number, cy: number): Phaser.GameObjects.Container {
     const c = this.add.container(0, 0);
     const g = this.add.graphics();
 
@@ -107,9 +117,20 @@ export class PoolScene extends BaseScene {
     g.fillEllipse(cx - 98, cy - 49, 50, 13);
     c.add(g);
 
+    return c;
+  }
+
+
+  /**
+   * The animated water surface and the tap-to-splash zone.
+   *
+   * Kept out of the baked layer for the obvious reason — a baked wave does not move, and a
+   * baked zone is destroyed along with the container it was drawn from.
+   */
+  private addWaterSurface(cx: number, cy: number): void {
     // animated surface line
     const wave = this.add.graphics();
-    c.add(wave);
+    this.amb(wave);
     let offset = 0;
     this.time.addEvent({
       delay: 90,
@@ -133,8 +154,37 @@ export class PoolScene extends BaseScene {
       audio.splash();
       showSplash(this, p.worldX, p.worldY);
     });
-    c.add(zone);
+    this.amb(zone);
 
+  }
+
+  /** A beach ball that never stops bouncing gently. */
+  private drawBeachBall(x: number, y: number): Phaser.GameObjects.Container {
+    const c = this.add.container(x, y);
+    const g = this.add.graphics();
+    const r = 17;
+
+    g.fillStyle(COLORS.white);
+    g.fillCircle(0, 0, r);
+    [COLORS.red, COLORS.sun, COLORS.water, COLORS.green].forEach((col, i) => {
+      g.fillStyle(col);
+      g.slice(0, 0, r, (i / 4) * Math.PI * 2, ((i + 0.5) / 4) * Math.PI * 2, false);
+      g.fillPath();
+    });
+    g.fillStyle(COLORS.white, 0.45);
+    g.fillCircle(-6, -7, 5);
+    g.lineStyle(LINE.thin, COLORS.outline, 0.85);
+    g.strokeCircle(0, 0, r);
+
+    c.add(g);
+
+    if (!reduceMotion()) {
+      this.tweens.add({
+        targets: c, y: y - 32, duration: 900,
+        yoyo: true, repeat: -1, ease: 'Sine.easeOut',
+      });
+      this.tweens.add({ targets: c, angle: 360, duration: 5000, repeat: -1, ease: 'Linear' });
+    }
     return c;
   }
 

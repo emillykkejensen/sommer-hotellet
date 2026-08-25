@@ -1,8 +1,11 @@
 import { Level } from '../tasks/types';
 import { mirrorSave } from '../helpers/Native';
 import { randomOrder } from './Menu';
+import type { Area } from './Shop';
 
 export type Chore = 'bedMade' | 'curtainsOpen' | 'flowersPlaced' | 'vacuumed' | 'towelsFolded';
+
+export const CHORES: Chore[] = ['bedMade', 'curtainsOpen', 'flowersPlaced', 'vacuumed', 'towelsFolded'];
 
 /** The three things a guest comes to the hotel to do, in whatever order they fancy. */
 export type Place = 'pool' | 'restaurant' | 'room';
@@ -140,6 +143,8 @@ export const MAX_WAITING_GUESTS = 3;
 export const MAX_READY_DISHES = 6;
 /** Tables in the restaurant. */
 export const TABLE_COUNT = 5;
+/** Every recipe has the same number of ingredients; the map's counter relies on it. */
+export const RECIPE_STEPS = 3;
 
 const GUEST_NAMES = [
   'Hr. Jensen', 'Fru Hansen', 'Familien Pedersen', 'Fru Larsen',
@@ -780,6 +785,42 @@ class GameState {
 
   allApplesPicked(): boolean {
     return this.garden.apples.every(a => a);
+  }
+
+  // ---------- what still wants doing ----------
+
+  /**
+   * How many jobs are left in an area.
+   *
+   * Derived, never stored — it is a read of the same state the scenes draw from, so it
+   * cannot drift out of sync with them. The hotel map uses it to put a number on each
+   * area, which is what turns five identical buttons into a place with things going on.
+   */
+  todoIn(area: Area): number {
+    switch (area) {
+      case 'lobby':
+        // Either there are guests to check in, or the bell is worth ringing.
+        return this.getWaitingGuests().length > 0
+          ? this.getWaitingGuests().length
+          : (this.hasFreeRoom() ? 1 : 0);
+
+      case 'rooms':
+        // Only over the rooms the hotel actually has — the shop can buy more.
+        return this.rooms.slice(0, this.roomCount)
+          .reduce((sum, room) => sum + CHORES.filter(c => !room[c]).length, 0);
+
+      case 'kitchen':
+        if (!this.kitchen.recipe) return 1;
+        return RECIPE_STEPS - this.kitchen.added.length + 1;
+
+      case 'pool':
+        return this.pool.towels.filter(t => !t).length;
+
+      case 'garden':
+        return this.garden.flowers.filter(f => !f).length
+          + (SANDCASTLE_STAGES - this.garden.sandcastle)
+          + this.garden.apples.filter(a => !a).length;
+    }
   }
 
   // ---------- persistence ----------

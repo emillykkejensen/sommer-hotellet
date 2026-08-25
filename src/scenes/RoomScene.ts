@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { COLORS, INK, INK_SOFT, ROOM_THEMES, SIZE, text } from '../config';
+import { COLORS, INK, INK_SOFT, LINE, ROOM_THEMES, SIZE, text } from '../config';
 import { Chore, GuestData, gameState } from '../state/GameState';
 import { THEME_UNLOCKS } from '../state/Shop';
 import { showCheckmark, showSparkle, showStarBurst, showToast } from '../objects/FeedbackEffects';
@@ -7,9 +7,9 @@ import { drawPatienceBar, drawSleepZs, drawSpeechBubble, guestLine, sayOnce } fr
 import { addBackButton, addStarCounter, award } from '../ui/Chrome';
 import { rewardFor } from '../helpers/Reward';
 import { placeDecorations } from './ShopScene';
-import { caption, drawFlower, drawHead, drawPerson, shadow, tappable } from '../helpers/Draw';
+import { caption, drawFlower, drawHead, drawPerson, progressBar, shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
-import { dur } from '../helpers/Motion';
+import { dur, wobble } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
 
 interface ChoreSpec {
@@ -84,6 +84,9 @@ export class RoomScene extends BaseScene {
     wall.fillStyle(theme.accent, 0.22);
     wall.fillRect(0, 128, width, 5);
     this.dyn(wall);
+
+    // Wall furniture lives here too, or the tinted wall would cover it.
+    this.dyn(this.buildWallArt(width / 2 - 244, height * 0.33, theme));
 
     this.buildRoomTabs();
 
@@ -257,15 +260,47 @@ export class RoomScene extends BaseScene {
     this.everyFrame(bar.update);
   }
 
+  /**
+   * Cleaning progress.
+   *
+   * Five dots said "something out of something" without saying what. A filling bar with
+   * the count on it is readable at a glance and gives the last tap somewhere to land.
+   */
   private buildProgressDots(x: number, y: number, done: number, total: number): void {
     const c = this.add.container(x, y);
-    for (let i = 0; i < total; i++) {
-      const dx = (i - (total - 1) / 2) * 20;
-      const dot = this.add.circle(dx, 0, 6, i < done ? COLORS.green : COLORS.white);
-      dot.setStrokeStyle(1.5, i < done ? COLORS.green : COLORS.stoneDeep);
-      c.add(dot);
-    }
+    c.add(progressBar(this, 0, 0, 186, 16, done / total, done === total ? COLORS.green : COLORS.sun));
+    c.add(this.add.text(0, 0, `${done} / ${total}`, text(SIZE.tiny, INK, 'bold')).setOrigin(0.5));
     this.dyn(c);
+    if (done === total) wobble(this, c);
+  }
+
+  /** A framed picture, keyed to the room's theme so the rooms feel distinct. */
+  private buildWallArt(x: number, y: number, theme: typeof ROOM_THEMES[0]): Phaser.GameObjects.Container {
+    const c = this.add.container(x, y);
+    const g = this.add.graphics();
+    const w = 92;
+    const h = 72;
+
+    shadow(g, -w / 2, -h / 2, w, h, 5, 3, 0.18);
+    g.fillStyle(COLORS.woodDeep);
+    g.fillRoundedRect(-w / 2, -h / 2, w, h, 5);
+    g.fillStyle(COLORS.cream);
+    g.fillRect(-w / 2 + 7, -h / 2 + 7, w - 14, h - 14);
+
+    // three soft hills in the room's accent — abstract enough to suit any of the themes
+    g.fillStyle(theme.accent, 0.55);
+    g.fillCircle(-13, 11, 19);
+    g.fillStyle(theme.accent, 0.8);
+    g.fillCircle(10, 15, 23);
+    g.fillStyle(COLORS.sun);
+    g.fillCircle(15, -11, 8);
+
+    g.lineStyle(LINE.base, COLORS.outline, 0.85);
+    g.strokeRoundedRect(-w / 2, -h / 2, w, h, 5);
+    g.strokeRect(-w / 2 + 7, -h / 2 + 7, w - 14, h - 14);
+
+    c.add(g);
+    return c;
   }
 
   private buildRoomTabs(): void {

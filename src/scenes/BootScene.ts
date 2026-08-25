@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { COLORS, INK_SOFT, SIZE, text } from '../config';
+import { drawStarShape, gradientBand } from '../helpers/Draw';
+import { reduceMotion } from '../helpers/Motion';
 import { restoreSaveIfEmpty } from '../helpers/Native';
 import { SAVE_KEY, gameState } from '../state/GameState';
 
@@ -10,19 +12,25 @@ export class BootScene extends Phaser.Scene {
 
   create(): void {
     const { width, height } = this.scale;
-    this.cameras.main.setBackgroundColor(COLORS.skyLight);
 
-    const label = this.add.text(width / 2, height / 2 + 46, 'Indlæser...', text(SIZE.body, INK_SOFT))
+    // The loading screen is the first thing anyone sees, so it gets the same sky as the
+    // game rather than a flat fill — otherwise the first frame is a visible seam.
+    gradientBand(this, 0, height, COLORS.skyLight, COLORS.sky);
+
+    const label = this.add.text(width / 2, height / 2 + 62, 'Indlæser...', text(SIZE.body, INK_SOFT, 'bold'))
       .setOrigin(0.5);
 
-    // three bouncing dots
+    // Three bouncing stars, not dots.
     for (let i = 0; i < 3; i++) {
-      const dot = this.add.circle(width / 2 - 18 + i * 18, height / 2, 7, COLORS.sunDeep);
+      const g = this.add.graphics().setPosition(width / 2 - 34 + i * 34, height / 2);
+      drawStarShape(g, 0, 0, 15);
+      if (reduceMotion()) continue;
       this.tweens.add({
-        targets: dot,
-        y: height / 2 - 14,
-        duration: 380,
-        delay: i * 120,
+        targets: g,
+        y: height / 2 - 22,
+        angle: 180,
+        duration: 400,
+        delay: i * 130,
         yoyo: true,
         repeat: -1,
         ease: 'Sine.easeInOut',

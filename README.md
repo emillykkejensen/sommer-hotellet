@@ -83,7 +83,7 @@ src/
     figures.ts           drawn answer options: shapes, cakes, clocks, thermometer
     picker.ts            which task comes next, and at which level
   scenes/
-    BaseScene.ts         the three-layer background/dynamic/effects pattern
+    BaseScene.ts         the four-layer background/ambient/dynamic/effects pattern
     BootScene.ts         waits for the webfont, then hands over to the menu
     MainMenuScene.ts     title screen, and the way out of the game
     HotelMapScene.ts     the hub; five areas, the shop, the grown-up screen, waiting badges
@@ -97,7 +97,8 @@ src/
     TaskOverlayScene.ts  the task card, and its four interaction templates
   helpers/
     Draw.ts              shared shapes: panels, captions, buttons, people, scenery
-    Motion.ts            prefers-reduced-motion handling
+    Motion.ts            prefers-reduced-motion handling, entrance and idle animation
+    Flatten.ts           bakes static scenery to a texture (see below)
     Reward.ts            the single reward path every action goes through
     Audio.ts             synthesised sound effects, music and guest gibberish
   objects/
@@ -122,17 +123,55 @@ nondeterminism in the tests, not infrastructure.
 
 ### The layer pattern
 
-Scenes never restart themselves to redraw. `BaseScene` gives every scene three layers:
+Scenes never restart themselves to redraw. `BaseScene` gives every scene four layers:
 
-- **background** — built once in `buildBackground()`, never touched again
+- **background** — static scenery, built once in `buildBackground()` and then **baked into
+  a single texture**; the vector objects are destroyed
+- **ambient** — scenery that moves under its own power (sun, clouds, birds, butterflies,
+  ceiling fans, the pool's water surface), built once in `buildAmbient()` and never rebuilt
 - **dynamic** — everything derived from `GameState`, rebuilt wholesale by `refresh()`
 - **effects** — added straight to the scene at `DEPTH.effects`, so a `refresh()` cannot
   destroy a reward animation that is still playing
 
 An interaction therefore looks like: mutate `gameState`, play the feedback, call
-`refresh()`. Calling `this.scene.restart()` from a click handler is what broke the
-kitchen, pool and garden previously — it re-ran `create()`, which reset the same fields
-the handler had just written.
+`refresh()`. Calling `this.scene.restart()` from a click handler is what broke the kitchen,
+pool and garden previously — it re-ran `create()`, which reset the same fields the handler
+had just written.
+
+The rule when adding to a scene: **if it never changes, put it in `background`; if it
+moves, put it in `ambient`; if it reflects state, put it in `dynamic`.** Getting this wrong
+is quiet but not subtle — something animated in `background` freezes, because it has been
+baked into a picture, and anything added straight to the scene during `buildBackground()`
+disappears underneath that picture.
+
+Scenes also run the guest clock, so a guest waiting for a towel runs out of patience even
+while the player is in the garden.
+
+### Why the background gets baked
+
+`Graphics` is not a cached display object. Phaser's renderer walks and re-tessellates the
+whole command list of every `Graphics` object on every frame, so scenery costs the same
+whether or not it has changed since it was drawn. The outlined art style roughly doubles
+that command count — every plate is a fill plus a stroke.
+
+`helpers/Flatten.ts` draws the static layer once into a `RenderTexture` and throws the
+vector objects away, turning an unbounded pile of per-frame geometry into one textured
+quad. On the title screen this took the frame rate from 8 fps to 19 under the software
+WebGL renderer the tests run against.
+
+### The visual language
+
+One rule holds the art together: **anything sitting on top of scenery gets an outline**,
+always the same warm near-black (`COLORS.outline`), never pure black. An earlier version
+relied on soft fills against soft fills, which is why a green button on green grass and a
+wooden lounger on sand both dissolved into their backgrounds. Contrast comes from the ink
+line, so the fills themselves can stay gentle.
+
+Buttons are built as a face sitting on a darker lip, and pressing one pushes the face down
+onto the lip rather than merely scaling it. Scene titles hang on a ribbon that shrinks to
+fit the gap between the controls on either side. Captions are outlined tags carrying a
+state dot — amber for "this one still wants you", a green tick for done — so a child can
+scan a screen and see what is left without reading a word of Danish.
 
 ### State and rewards
 
@@ -202,6 +241,21 @@ somebody waiting — otherwise finding the guest who needs you means walking all
 Patience is wall-clock time, so `load()` deliberately rewinds every guest's `since` to now.
 Closing the game is not a mistake a child should be charged for, and a save reopened the next
 morning would otherwise have the whole hotel storming out on the first tick.
+
+### Stars, ranks and the flight to the counter
+
+`award(scene, count, x, y)` grants the stars, plays the counter animation, and — given a
+position — flies the earned star from the thing that produced it up to the counter. That
+flight is the clearest way to explain the currency to somebody who cannot yet read the
+label. `rewardFor` takes a `from` for the same reason.
+
+Stars also feed a rank ladder (`RANKS` in `config.ts`), shown as a bar under the counter.
+It is a read-out of effort, not a gate: nothing to unlock, nothing to fail, no way to go
+backwards — the shop is what stars are actually spent on. Reaching a new rank plays a short
+celebration that clears itself.
+
+Confetti and the big praise pop are reserved for finishing a whole job — a complete room,
+every lounger, the finished sandcastle — so they stay a treat rather than wallpaper.
 
 ### The reward path
 
@@ -470,6 +524,14 @@ software WebGL, Phaser's clamped frame delta stretches a 220 ms fade past a seco
 fixed wait fires the next click into the old scene.
 
 ## Known limits
+
+- **The richer art costs frame time.** Measured under the software WebGL renderer the test
+  suite uses, the interiors run roughly a quarter slower than the flat version did; the
+  title screen, which had the most static scenery to bake, runs slightly faster. On any
+  device with a GPU all of it is comfortably at the frame cap. Baking the *dynamic* layer
+  between refreshes would recover most of the difference, but it would cost the press and
+  hover animation on every tappable object, which is not a trade worth making for a game
+  whose whole point is that it feels good to poke.
 
 Not bugs, but worth knowing before picking up the next piece of work.
 

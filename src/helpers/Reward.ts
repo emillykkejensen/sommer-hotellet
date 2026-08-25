@@ -21,20 +21,24 @@ import { award } from '../ui/Chrome';
 export function rewardFor(
   scene: Phaser.Scene,
   area: Area,
-  options: { base?: number; after?: () => void } = {}
+  options: { base?: number; after?: () => void; from?: { x: number; y: number } } = {}
 ): void {
   const base = options.base ?? 1;
   const after = options.after;
+  // Where the earned star flies from. In free play that is the thing that was just
+  // finished; a task pays from the middle of the screen, because by then the task card is
+  // what the child is looking at, not the bed.
+  const from = options.from;
 
   if (!gameState.isLearning) {
-    award(scene, base);
+    award(scene, base, from?.x, from?.y);
     after?.();
     return;
   }
 
   const task = nextTask(area);
   if (!task) {
-    award(scene, base);
+    award(scene, base, from?.x, from?.y);
     after?.();
     return;
   }
@@ -42,7 +46,7 @@ export function rewardFor(
   runTask(scene, task, ({ stars }) => {
     // A task the child ran out of tries on pays nothing, and `award(0)` would still play
     // the chime and bounce the counter.
-    if (stars > 0) award(scene, stars);
+    if (stars > 0) award(scene, stars, scene.scale.width / 2, scene.scale.height / 2);
     after?.();
   });
 }

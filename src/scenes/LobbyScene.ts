@@ -1,13 +1,14 @@
 import Phaser from 'phaser';
-import { COLORS, SIZE, text } from '../config';
+import { COLORS, LINE, SIZE, text } from '../config';
 import { GuestData, gameState, MAX_WAITING_GUESTS } from '../state/GameState';
 import { showHearts, showStarBurst, showToast } from '../objects/FeedbackEffects';
 import { drawPatienceBar, drawSpeechBubble, guestLine, sayOnce } from '../objects/Guests';
 import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
 import { rewardFor } from '../helpers/Reward';
 import { placeDecorations } from './ShopScene';
-import { caption, drawPerson, shadow, tappable } from '../helpers/Draw';
+import { caption, drawPerson, plate, shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
+import { reduceMotion } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
 
 export class LobbyScene extends BaseScene {
@@ -50,6 +51,20 @@ export class LobbyScene extends BaseScene {
     this.background.add(g);
     this.background.add(this.drawPottedPlant(48, height * 0.7));
     this.background.add(this.drawPottedPlant(width - 48, height * 0.7));
+
+    // The bare upper wall was the emptiest part of the screen — three quarters of it was
+    // blank wallpaper. It now carries the things a hotel lobby wall carries, laid out
+    // around the key board on the right and the star counter above it.
+    this.background.add(this.drawSconce(46, 168));
+    this.background.add(this.drawSeaPicture(196, 192));
+    this.background.add(this.drawWelcomeSign(474, 176));
+  }
+
+  /** Scenery that moves under its own power, so it must stay out of the bake. */
+  protected buildAmbient(): void {
+    this.amb(this.drawClock(624, 128));
+    this.amb(this.drawCeilingFan(268, 92));
+    this.amb(this.drawCeilingFan(560, 92));
   }
 
   protected buildChrome(): void {
@@ -331,6 +346,179 @@ export class LobbyScene extends BaseScene {
       }
       this.refresh();
     });
+  }
+
+  // ---------- wall furniture ----------
+
+  /** A framed seascape. The lobby wall needed something on it at eye height. */
+  private drawSeaPicture(x: number, y: number): Phaser.GameObjects.Container {
+    const c = this.add.container(x, y);
+    const g = this.add.graphics();
+    const w = 138;
+    const h = 100;
+
+    shadow(g, -w / 2, -h / 2, w, h, 6, 4, 0.2);
+    g.fillStyle(COLORS.woodDeep);
+    g.fillRoundedRect(-w / 2, -h / 2, w, h, 6);
+    g.fillStyle(COLORS.wood);
+    g.fillRoundedRect(-w / 2 + 4, -h / 2 + 4, w - 8, h - 8, 4);
+
+    const iw = w - 22;
+    const ih = h - 22;
+    g.fillStyle(COLORS.skyLight);
+    g.fillRect(-iw / 2, -ih / 2, iw, ih * 0.52);
+    g.fillStyle(COLORS.water);
+    g.fillRect(-iw / 2, -ih / 2 + ih * 0.52, iw, ih * 0.3);
+    g.fillStyle(COLORS.sand);
+    g.fillRect(-iw / 2, -ih / 2 + ih * 0.82, iw, ih * 0.18);
+    g.fillStyle(COLORS.sun);
+    g.fillCircle(iw / 2 - 20, -ih / 2 + 17, 10);
+    g.fillStyle(COLORS.white, 0.7);
+    [0.6, 0.72].forEach(f => {
+      g.fillEllipse(-iw / 4, -ih / 2 + ih * f, iw * 0.5, 4);
+      g.fillEllipse(iw / 5, -ih / 2 + ih * (f + 0.06), iw * 0.4, 3.5);
+    });
+    g.fillStyle(COLORS.roof);
+    g.fillTriangle(-6, -ih / 2 + ih * 0.86, 13, -ih / 2 + ih * 0.86, 4, -ih / 2 + ih * 0.7);
+
+    g.lineStyle(LINE.base, COLORS.outline, 0.85);
+    g.strokeRoundedRect(-w / 2, -h / 2, w, h, 6);
+    g.strokeRect(-iw / 2, -ih / 2, iw, ih);
+
+    c.add(g);
+    return c;
+  }
+
+  /** "Velkommen" on a hanging board, so the room greets you in its own language. */
+  private drawWelcomeSign(x: number, y: number): Phaser.GameObjects.Container {
+    const c = this.add.container(x, y);
+    const g = this.add.graphics();
+    const w = 166;
+    const h = 54;
+
+    g.lineStyle(LINE.thin, COLORS.outline, 0.7);
+    g.lineBetween(-w / 2 + 20, -h / 2, -w / 2 + 32, -h / 2 - 18);
+    g.lineBetween(w / 2 - 20, -h / 2, w / 2 - 32, -h / 2 - 18);
+
+    shadow(g, -w / 2, -h / 2, w, h, 12, 4, 0.2);
+    plate(g, -w / 2, -h / 2, w, h, 12, COLORS.teal, 1, LINE.thick);
+    g.fillStyle(COLORS.white, 0.24);
+    g.fillRoundedRect(-w / 2 + 5, -h / 2 + 5, w - 10, h * 0.38, 9);
+
+    c.add(g);
+    const t = this.add.text(0, 0, 'Velkommen', text(SIZE.heading, '#FFFFFF', 'bold')).setOrigin(0.5);
+    t.setShadow(0, 2, 'rgba(74,58,44,0.5)', 0, false, true);
+    c.add(t);
+    return c;
+  }
+
+  /** Wall light. It does more for the room than any amount of wallpaper. */
+  private drawSconce(x: number, y: number): Phaser.GameObjects.Container {
+    const c = this.add.container(x, y);
+    const g = this.add.graphics();
+
+    // the pool of light on the wall, above and below the shade
+    g.fillStyle(COLORS.sun, 0.16);
+    g.fillTriangle(-28, -44, 28, -44, 0, -4);
+    g.fillTriangle(-24, 42, 24, 42, 0, 2);
+
+    g.lineStyle(3, COLORS.woodDeep);
+    g.lineBetween(0, -2, 0, 10);
+    g.fillStyle(COLORS.sunDeep);
+    g.fillTriangle(-18, -2, 18, -2, 11, -23);
+    g.fillStyle(COLORS.sun);
+    g.fillTriangle(-16, -3, 16, -3, 10, -21);
+    g.lineStyle(LINE.thin, COLORS.outline, 0.85);
+    g.strokePoints([
+      new Phaser.Geom.Point(-18, -2),
+      new Phaser.Geom.Point(-11, -23),
+      new Phaser.Geom.Point(11, -23),
+      new Phaser.Geom.Point(18, -2),
+    ], true, true);
+    g.fillStyle(COLORS.woodDeep);
+    g.fillRoundedRect(-7, 8, 14, 7, 3);
+    g.lineStyle(LINE.hair, COLORS.outline, 0.85);
+    g.strokeRoundedRect(-7, 8, 14, 7, 3);
+
+    c.add(g);
+    return c;
+  }
+
+  /** Wall clock with a hand that actually sweeps. */
+  private drawClock(x: number, y: number): Phaser.GameObjects.Container {
+    const c = this.add.container(x, y);
+    const g = this.add.graphics();
+    const r = 28;
+
+    g.fillStyle(COLORS.shadow, 0.18);
+    g.fillCircle(1, 3, r);
+    g.fillStyle(COLORS.woodDeep);
+    g.fillCircle(0, 0, r);
+    g.fillStyle(COLORS.cream);
+    g.fillCircle(0, 0, r - 5);
+    g.lineStyle(LINE.base, COLORS.outline, 0.9);
+    g.strokeCircle(0, 0, r);
+    g.strokeCircle(0, 0, r - 5);
+
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      g.fillStyle(COLORS.outline, i % 3 === 0 ? 0.8 : 0.4);
+      g.fillCircle(Math.cos(a) * (r - 10), Math.sin(a) * (r - 10), i % 3 === 0 ? 2 : 1.3);
+    }
+
+    // hour hand is fixed; the long hand is the one that moves
+    g.lineStyle(3, COLORS.outline, 0.8);
+    g.lineBetween(0, 0, 8, -8);
+    c.add(g);
+
+    const hand = this.add.graphics();
+    hand.lineStyle(2.2, COLORS.red, 0.95);
+    hand.lineBetween(0, 4, 0, -19);
+    hand.fillStyle(COLORS.outline);
+    hand.fillCircle(0, 0, 2.6);
+    c.add(hand);
+
+    if (!reduceMotion()) {
+      this.tweens.add({ targets: hand, angle: 360, duration: 60000, repeat: -1, ease: 'Linear' });
+    }
+    return c;
+  }
+
+  /** Ceiling fan. One rotating object does more for a still room than ten static props. */
+  private drawCeilingFan(x: number, y: number): Phaser.GameObjects.Container {
+    const c = this.add.container(x, y);
+
+    const rod = this.add.graphics();
+    rod.lineStyle(4, COLORS.stoneDeep);
+    rod.lineBetween(0, -y, 0, 0);
+    rod.fillStyle(COLORS.stoneDeep);
+    rod.fillCircle(0, 0, 7);
+    rod.lineStyle(LINE.hair, COLORS.outline, 0.8);
+    rod.strokeCircle(0, 0, 7);
+    c.add(rod);
+
+    const blades = this.add.graphics();
+    // Seen from below and slightly to the side, so the blades are flattened ellipses.
+    for (let i = 0; i < 4; i++) {
+      blades.save();
+      blades.rotateCanvas((i / 4) * Math.PI * 2);
+      blades.fillStyle(COLORS.wood);
+      blades.fillEllipse(28, 0, 50, 12);
+      blades.lineStyle(LINE.hair, COLORS.outline, 0.7);
+      blades.strokeEllipse(28, 0, 50, 12);
+      blades.restore();
+    }
+    c.add(blades);
+
+    if (!reduceMotion()) {
+      // Slow: a fast fan on a 2D scene reads as a strobe.
+      this.tweens.add({ targets: blades, angle: 360, duration: 5200, repeat: -1, ease: 'Linear' });
+      this.tweens.add({
+        targets: blades, scaleY: 0.86, duration: 2600,
+        yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      });
+    }
+    return c;
   }
 
   private drawPottedPlant(x: number, y: number): Phaser.GameObjects.Container {

@@ -1,11 +1,13 @@
 import Phaser from 'phaser';
-import { COLORS } from '../config';
+import { COLORS, LINE } from '../config';
 import { APPLE_COUNT, FLOWER_COUNT, gameState, SANDCASTLE_STAGES } from '../state/GameState';
 import { showHearts, showSparkle, showStarBurst, showToast } from '../objects/FeedbackEffects';
 import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
 import { rewardFor } from '../helpers/Reward';
 import { placeDecorations } from './ShopScene';
-import { caption, drawCloud, drawFlower, drawHead, drawSun, drawTree, gradientBand, shadow, tappable } from '../helpers/Draw';
+import {
+  addBirds, caption, drawCloud, drawHead, drawSun, drawTree, gradientBand, paintFlower, shadow, tappable,
+} from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
 import { dur, reduceMotion } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
@@ -25,9 +27,6 @@ export class GardenScene extends BaseScene {
     this.background.add(gradientBand(this, 0, height * 0.5, COLORS.skyLight, COLORS.sky));
     this.background.add(gradientBand(this, height * 0.44, height * 0.56, COLORS.grassLight, COLORS.grassDeep));
 
-    drawSun(this, width - 96, 132, 25);
-    const cloud = drawCloud(this, 210, 120, 0.68);
-    this.tweens.add({ targets: cloud, x: '+=90', duration: 14000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 
     // grass tufts
     const g = this.add.graphics();
@@ -38,21 +37,36 @@ export class GardenScene extends BaseScene {
       g.lineBetween(gx, gy, gx - 3, gy - 7);
       g.lineBetween(gx, gy, gx + 3, gy - 6);
     }
-    this.background.add(g);
+    // Static scenery, painted into the graphics that is about to be baked.
+    paintFlower(g, width * 0.34, height * 0.93, COLORS.pink, 0.8);
+    paintFlower(g, width * 0.4, height * 0.9, COLORS.white, 0.7);
+    paintFlower(g, width * 0.28, height * 0.88, COLORS.purple, 0.7);
+    paintFlower(g, width * 0.82, height * 0.9, COLORS.sun, 0.8);
+    paintFlower(g, width * 0.88, height * 0.94, COLORS.pink, 0.7);
 
-    drawTree(this, 78, height * 0.56, 1.05);
-    drawFlower(this, 300, height * 0.93, COLORS.pink, 0.8);
-    drawFlower(this, 348, height * 0.9, COLORS.white, 0.7);
-    drawFlower(this, 250, height * 0.88, COLORS.purple, 0.7);
-    drawFlower(this, 720, height * 0.9, COLORS.sun, 0.8);
-    drawFlower(this, 776, height * 0.94, COLORS.pink, 0.7);
+    this.background.add(g);
+    this.background.add(drawTree(this, 72, height * 0.56, 1.05));
+    this.background.add(this.drawBench(width * 0.09, height * 0.84));
+  }
+
+  /** Scenery that moves under its own power, so it must stay out of the bake. */
+  protected buildAmbient(): void {
+    const { width } = this.scale;
+    drawSun(this, width - 96, 132, 25);
+    addBirds(this, 3, 68, 42);
+
+    const cloud = drawCloud(this, 200, 112, 0.68);
+    if (!reduceMotion()) {
+      this.tweens.add({ targets: cloud, x: '+=90', duration: 14000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    }
+
     this.addButterflies();
   }
 
   protected buildChrome(): void {
     addBackButton(this);
     addStarCounter(this);
-    addSceneTitle(this, 'Haven & Legepladsen', '#6FAE55');
+    addSceneTitle(this, 'Haven & Legepladsen', COLORS.green);
   }
 
   protected buildDynamic(): void {
@@ -81,7 +95,7 @@ export class GardenScene extends BaseScene {
     for (let i = 0; i < FLOWER_COUNT; i++) {
       const fx = -80 + i * 40;
       if (watered[i]) {
-        c.add(drawFlower(this, fx, -6, PETALS[i], 1.05));
+        paintFlower(g, fx, -6, PETALS[i], 1.05);
       } else {
         const sprout = this.add.graphics();
         sprout.lineStyle(2.5, COLORS.grassDeep, 0.75);
@@ -391,32 +405,71 @@ export class GardenScene extends BaseScene {
       });
     }
 
-    // basket at the foot of the trunk, offset so the two shapes stay legible
+    // Basket at the foot of the trunk, on the right: on the left it landed underneath the
+    // swing's caption.
     const basket = this.add.graphics();
     const pickedCount = picked.filter(Boolean).length;
     for (let i = 0; i < Math.min(pickedCount, 3); i++) {
       basket.fillStyle(COLORS.red);
-      basket.fillCircle(-58 + i * 13, 50, 6);
-      basket.fillStyle(COLORS.white, 0.35);
-      basket.fillCircle(-60 + i * 13, 48, 2);
+      basket.fillCircle(34 + i * 13, 50, 6.5);
+      basket.lineStyle(LINE.hair, COLORS.outline, 0.85);
+      basket.strokeCircle(34 + i * 13, 50, 6.5);
+      basket.fillStyle(COLORS.white, 0.4);
+      basket.fillCircle(32 + i * 13, 48, 2);
     }
     basket.fillStyle(COLORS.woodDeep);
-    basket.fillRoundedRect(-74, 52, 46, 24, { tl: 2, tr: 2, bl: 10, br: 10 });
+    basket.fillRoundedRect(28, 52, 46, 24, { tl: 2, tr: 2, bl: 10, br: 10 });
     basket.fillStyle(COLORS.wood);
-    basket.fillRoundedRect(-72, 54, 42, 20, { tl: 2, tr: 2, bl: 9, br: 9 });
-    basket.lineStyle(1.5, COLORS.woodDeep, 0.55);
-    for (let i = 1; i < 4; i++) basket.lineBetween(-72 + i * 10, 55, -72 + i * 10, 72);
-    basket.lineBetween(-72, 62, -30, 62);
+    basket.fillRoundedRect(30, 54, 42, 20, { tl: 2, tr: 2, bl: 9, br: 9 });
+    basket.lineStyle(LINE.hair, COLORS.woodDeep, 0.7);
+    for (let i = 1; i < 4; i++) basket.lineBetween(30 + i * 10, 55, 30 + i * 10, 72);
+    basket.lineBetween(30, 62, 72, 62);
     basket.fillStyle(COLORS.woodDeep);
-    basket.fillRoundedRect(-76, 48, 50, 7, 3);
+    basket.fillRoundedRect(26, 48, 50, 8, 3.5);
+    basket.lineStyle(LINE.thin, COLORS.outline, 0.85);
+    basket.strokeRoundedRect(28, 52, 46, 24, { tl: 2, tr: 2, bl: 10, br: 10 });
+    basket.strokeRoundedRect(26, 48, 50, 8, 3.5);
     c.add(basket);
 
     // The completion message used to be drawn on top of the permanent label.
-    c.add(caption(this, 6, 96,
+    c.add(caption(this, -46, 98,
       gameState.allApplesPicked() ? 'Alle æbler er plukket' : `Pluk æbler — ${pickedCount} af ${APPLE_COUNT}`,
       gameState.allApplesPicked() ? 'done' : 'idle'));
 
     this.dyn(c);
+  }
+
+  /** A garden bench. Nobody sits on it; it is there so the lawn is not empty. */
+  private drawBench(x: number, y: number): Phaser.GameObjects.Container {
+    const c = this.add.container(x, y);
+    const g = this.add.graphics();
+
+    g.fillStyle(COLORS.shadow, 0.12);
+    g.fillEllipse(0, 32, 96, 14);
+
+    g.fillStyle(COLORS.woodDeep);
+    g.fillRoundedRect(-38, 4, 9, 28, 3);
+    g.fillRoundedRect(29, 4, 9, 28, 3);
+    g.lineStyle(LINE.hair, COLORS.outline, 0.8);
+    g.strokeRoundedRect(-38, 4, 9, 28, 3);
+    g.strokeRoundedRect(29, 4, 9, 28, 3);
+
+    ([[-6, COLORS.wood], [-20, COLORS.woodLight], [-34, COLORS.wood]] as [number, number][])
+      .forEach(([dy, col]) => {
+        g.fillStyle(col);
+        g.fillRoundedRect(-46, dy, 92, 10, 4);
+        g.lineStyle(LINE.hair, COLORS.outline, 0.8);
+        g.strokeRoundedRect(-46, dy, 92, 10, 4);
+      });
+    g.fillStyle(COLORS.woodDeep);
+    g.fillRoundedRect(-42, -38, 8, 42, 3);
+    g.fillRoundedRect(34, -38, 8, 42, 3);
+    g.lineStyle(LINE.hair, COLORS.outline, 0.8);
+    g.strokeRoundedRect(-42, -38, 8, 42, 3);
+    g.strokeRoundedRect(34, -38, 8, 42, 3);
+
+    c.add(g);
+    return c;
   }
 
   private addButterflies(): void {
@@ -445,7 +498,7 @@ export class GardenScene extends BaseScene {
       g.lineBetween(-1, -9, -5, -14);
       g.lineBetween(1, -9, 5, -14);
       b.add(g);
-      this.background.add(b);
+      this.amb(b);
 
       this.tweens.add({
         targets: b,

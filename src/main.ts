@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { COLORS, GAME_HEIGHT, GAME_WIDTH } from './config';
 import { audio } from './helpers/Audio';
+import { gameState } from './state/GameState';
 import { setupNative } from './helpers/Native';
 import { BootScene } from './scenes/BootScene';
 import { MainMenuScene } from './scenes/MainMenuScene';
@@ -55,8 +56,12 @@ const unlockAudio = () => {
 window.addEventListener('pointerdown', unlockAudio);
 window.addEventListener('keydown', unlockAudio);
 
-// Exposed so the Playwright smoke tests can read scene state.
-(window as unknown as { __game: Phaser.Game }).__game = game;
+// Exposed so the Playwright tests can read scene state, and the live game state with it.
+// A dynamic import of GameState.ts from the page is *not* a way in: Vite hands the page its
+// own module instance, so a test that mutated that would be talking to a second, unwatched
+// copy of the hotel.
+(window as unknown as { __game: Phaser.Game; __state: typeof gameState }).__game = game;
+(window as unknown as { __game: Phaser.Game; __state: typeof gameState }).__state = gameState;
 
 // Landscape lock, immersive fullscreen, keep-awake and the hardware back button. Every one
 // of these is a no-op in a browser, so the web build is unchanged.

@@ -7,20 +7,24 @@ import { press, reduceMotion, transition } from '../helpers/Motion';
 import { setBackTarget } from '../helpers/Navigation';
 
 /** Back arrow, top left. */
-export function addBackButton(scene: Phaser.Scene, target = 'HotelMapScene'): Phaser.GameObjects.Container {
+export function addBackButton(
+  scene: Phaser.Scene,
+  target = 'HotelMapScene',
+  caption = 'Tilbage'
+): Phaser.GameObjects.Container {
   // Android's hardware back button reads this, so the two buttons cannot drift apart.
   setBackTarget(scene, target);
 
-  const label = scene.add.text(0, 0, 'Tilbage', text(SIZE.label, INK, 'bold')).setOrigin(0, 0.5);
+  const label = scene.add.text(0, 0, caption, text(SIZE.label, INK, 'bold')).setOrigin(0, 0.5);
 
   // Sized from the measured label, so the word never spills past the pill or collides
   // with the arrow the way a hardcoded width did.
-  const arrowW = 22;
-  const padding = 13;
+  const arrowW = 24;
+  const padding = 14;
   const w = padding + arrowW + label.width + padding;
-  const h = 38;
+  const h = 42;
 
-  const c = scene.add.container(padding + w / 2, 38).setDepth(DEPTH.chrome).setScrollFactor(0);
+  const c = scene.add.container(14 + w / 2, 34).setDepth(DEPTH.chrome).setScrollFactor(0);
 
   const g = scene.add.graphics();
   shadow(g, -w / 2, -h / 2, w, h, h / 2, 2, 0.14);
@@ -63,17 +67,17 @@ export function addBackButton(scene: Phaser.Scene, target = 'HotelMapScene'): Ph
  */
 export function addStarCounter(scene: Phaser.Scene): Phaser.GameObjects.Container {
   const x = scene.scale.width - 74;
-  const c = scene.add.container(x, 38).setDepth(DEPTH.chrome).setScrollFactor(0);
+  const c = scene.add.container(x, 34).setDepth(DEPTH.chrome).setScrollFactor(0);
 
   const g = scene.add.graphics();
-  shadow(g, -52, -20, 104, 40, 20, 2, 0.14);
+  shadow(g, -56, -22, 112, 44, 22, 2, 0.14);
   g.fillStyle(COLORS.white, 0.94);
-  g.fillRoundedRect(-52, -20, 104, 40, 20);
+  g.fillRoundedRect(-56, -22, 112, 44, 22);
 
-  const star = scene.add.star(-30, 0, 5, 6, 13, COLORS.sun);
+  const star = scene.add.star(-32, 0, 5, 7, 15, COLORS.sun);
   star.setStrokeStyle(1.5, COLORS.sunDeep);
 
-  const count = scene.add.text(10, 0, `${gameState.stars}`, text(SIZE.title - 4, INK, 'bold'))
+  const count = scene.add.text(11, 0, `${gameState.stars}`, text(SIZE.title - 4, INK, 'bold'))
     .setOrigin(0.5);
 
   c.add([g, star, count]);
@@ -107,7 +111,7 @@ export function addSceneTitle(
   scene: Phaser.Scene,
   label: string,
   outline?: string,
-  y = 38
+  y = 34
 ): Phaser.GameObjects.Text {
   const style: Phaser.Types.GameObjects.Text.TextStyle = outline
     ? { ...text(SIZE.title, '#FFFFFF', 'bold'), stroke: outline, strokeThickness: 5 }

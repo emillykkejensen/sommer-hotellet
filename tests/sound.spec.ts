@@ -8,6 +8,24 @@ import { AT, Game } from './game';
  * sound, and muting really does silence it.
  */
 
+/** A sandcastle one storey short of finished — the garden's task-raising job. */
+const ALMOST_BUILT = {
+  garden: {
+    flowers: [false, false, false, false, false],
+    sandcastle: 2,
+    apples: [false, false, false, false, false],
+  },
+};
+
+/**
+ * Guest gibberish lives well below every other cue.
+ *
+ * The babble is a sawtooth at roughly 120-190 Hz; the lowest note anything else plays is
+ * the 165 Hz tail of `denied`, and no effect starts below 196. So a scheduled pitch under
+ * 160 means a guest opened their mouth, and nothing else does.
+ */
+const isBabble = (pitch: number) => pitch < 160;
+
 test('no AudioContext exists until the player interacts', async ({ page }) => {
   const game = await Game.open(page);
 
@@ -69,7 +87,7 @@ test('finishing a chore is audible', async ({ page }) => {
 
 test('a muted game still plays normally', async ({ page }) => {
   const game = await Game.openWithSave(page, {
-    settings: { mode: 'leg', matematik: true, dansk: true, speak: false, sound: false },
+    settings: { mode: 'leg', matematik: true, dansk: true, voices: false, sound: false },
   });
   await game.start();
   await game.enter('pool');
@@ -84,7 +102,8 @@ test('a task plays feedback for both a right and a wrong answer', async ({ page 
   // Pinned to the pattern template: it has a real wrong answer that leaves the task open,
   // which is exactly what this test needs to hear.
   const game = await Game.openWithSave(page, {
-    settings: { mode: 'laer', matematik: true, dansk: true, speak: false, sound: true },
+    ...ALMOST_BUILT,
+    settings: { mode: 'laer', matematik: true, dansk: true, voices: false, sound: true },
     skills: Game.focusSkill('mønstre'),
   });
   await game.start();
@@ -109,9 +128,68 @@ test('a task plays feedback for both a right and a wrong answer', async ({ page 
   game.expectNoErrors();
 });
 
+test('a guest speaking plays gibberish, and it can be switched off on its own', async ({ page }) => {
+  // This replaced Danish speech synthesis: nonsense syllables carry "somebody is talking to
+  // you" without reading out a Danish sentence in whatever voice the device happens to have.
+  const game = await Game.openWithSave(page, {
+    ...Game.guestWaitingAt('pool'),
+    settings: { mode: 'leg', matematik: true, dansk: true, voices: true, sound: true, music: false },
+  });
+  await game.start();
+
+  const spoke = await game.countingSounds(() => game.enter('pool'));
+  expect(spoke.pitches.filter(isBabble).length, 'the waiting guest should say something')
+    .toBeGreaterThan(1);
+  game.expectNoErrors();
+});
+
+test('guest voices off leaves the rest of the sound alone', async ({ page }) => {
+  const game = await Game.openWithSave(page, {
+    ...Game.guestWaitingAt('pool'),
+    settings: { mode: 'leg', matematik: true, dansk: true, voices: false, sound: true, music: false },
+  });
+  await game.start();
+
+  const quiet = await game.countingSounds(() => game.enter('pool'));
+  expect(quiet.pitches.filter(isBabble), 'nobody should babble with voices off').toEqual([]);
+
+  // effects still work
+  const laid = await game.countingSounds(() => game.tap(AT.pool.lounger1.x, AT.pool.lounger1.y));
+  expect(laid.sources, 'laying a towel is still audible').toBeGreaterThan(1);
+  game.expectNoErrors();
+});
+
+test('the game never touches the browser speech synthesiser', async ({ page }) => {
+  // The Danish read-aloud is gone. It sounded like a station announcement on any device
+  // with a flat da-DK voice, and it read out text the target child cannot read anyway.
+  await page.addInitScript(() => {
+    (window as any).__spoke = 0;
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    const real = synth.speak.bind(synth);
+    synth.speak = (u: SpeechSynthesisUtterance) => {
+      (window as any).__spoke++;
+      return real(u);
+    };
+  });
+
+  const game = await Game.openWithSave(page, {
+    ...Game.guestWaitingAt('pool'),
+    settings: { mode: 'laer', matematik: true, dansk: true, voices: true, sound: true, music: false },
+  });
+  await game.start();
+  await game.enter('pool');
+  await game.tap(AT.pool.lounger1.x, AT.pool.lounger1.y);
+  if (await game.waitForTask()) await game.solveTask();
+
+  expect(await page.evaluate(() => (window as any).__spoke),
+    'nothing should reach speechSynthesis').toBe(0);
+  game.expectNoErrors();
+});
+
 test('the music plays on its own bus and can be switched off alone', async ({ page }) => {
   const game = await Game.openWithSave(page, {
-    settings: { mode: 'leg', matematik: true, dansk: true, speak: false, sound: true, music: true },
+    settings: { mode: 'leg', matematik: true, dansk: true, voices: false, sound: true, music: true },
   });
 
   // nothing before the first gesture, music included
@@ -140,7 +218,7 @@ test('the music plays on its own bus and can be switched off alone', async ({ pa
 
 test('music stays silent when all sound is off', async ({ page }) => {
   const game = await Game.openWithSave(page, {
-    settings: { mode: 'leg', matematik: true, dansk: true, speak: false, sound: false, music: true },
+    settings: { mode: 'leg', matematik: true, dansk: true, voices: false, sound: false, music: true },
   });
   await game.start();
   await game.enter('garden');

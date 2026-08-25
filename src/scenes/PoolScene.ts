@@ -1,12 +1,14 @@
 import Phaser from 'phaser';
-import { COLORS } from '../config';
-import { gameState, LOUNGER_COUNT } from '../state/GameState';
+import { COLORS, SIZE, text } from '../config';
+import { GuestData, gameState, LOUNGER_COUNT } from '../state/GameState';
 import { showHearts, showSparkle, showSplash, showStarBurst, showToast } from '../objects/FeedbackEffects';
+import { drawPatienceBar, drawSpeechBubble, guestLine, sayOnce } from '../objects/Guests';
 import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
 import { rewardFor } from '../helpers/Reward';
 import { placeDecorations } from './ShopScene';
-import { caption, drawHead, drawSun, gradientBand, shadow, tappable } from '../helpers/Draw';
+import { caption, drawHead, drawPerson, drawSun, gradientBand, shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
+import { dur } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
 
 export class PoolScene extends BaseScene {
@@ -16,13 +18,24 @@ export class PoolScene extends BaseScene {
     super({ key: 'PoolScene' });
   }
 
+  private loungerSpot(index: number): { x: number; y: number } {
+    const { width, height } = this.scale;
+    // Two down each side, the right-hand pair pushed lower so their captions clear the
+    // water slide's.
+    const left = index < 2;
+    return {
+      x: left ? 88 : width - 88,
+      y: height * (left ? (index === 0 ? 0.44 : 0.72) : (index === 2 ? 0.58 : 0.86)),
+    };
+  }
+
   protected buildBackground(): void {
     const { width, height } = this.scale;
 
     this.background.add(gradientBand(this, 0, height * 0.34, COLORS.skyLight, COLORS.sky));
     this.background.add(gradientBand(this, height * 0.3, height * 0.7, COLORS.sandLight, COLORS.sandDeep));
 
-    drawSun(this, width - 68, 124, 24);
+    drawSun(this, 96, 118, 26);
 
     // scattered pebbles for texture
     const g = this.add.graphics();
@@ -35,7 +48,7 @@ export class PoolScene extends BaseScene {
       );
     }
     this.background.add(g);
-    this.background.add(this.drawPool(width / 2, height * 0.55));
+    this.background.add(this.drawPool(width / 2, height * 0.53));
   }
 
   protected buildChrome(): void {
@@ -49,39 +62,50 @@ export class PoolScene extends BaseScene {
 
     placeDecorations(this, 'pool', this.dynamic);
     this.buildLoungers();
-    this.buildSlide(width - 198, height * 0.42);
-    this.buildDrinkBar(268, height * 0.9);
+    this.buildSlide(width - 180, height * 0.28);
+    this.buildDrinkBar(170, height * 0.93);
     this.buildSwimmers();
+    this.buildWaitingGuests();
 
     const laid = gameState.pool.towels.filter(Boolean).length;
-    const allLaid = laid === LOUNGER_COUNT;
-    this.dyn(caption(this, width / 2, height - 24,
-      allLaid ? 'Alle solstole er klar' : `Læg håndklæder på solstolene — ${laid} af ${LOUNGER_COUNT}`,
-      allLaid ? 'done' : 'idle'));
+    const waiting = gameState.guestsAt('pool').filter(g => g.settledAt === null).length;
+
+    let message: string;
+    if (waiting > 0) {
+      message = laid === LOUNGER_COUNT
+        ? 'Alle solstole er taget — en gæst må vente'
+        : 'En gæst venter — læg et håndklæde på en solstol';
+    } else if (laid === LOUNGER_COUNT) {
+      message = 'Alle solstole er klar';
+    } else {
+      message = `Læg håndklæder på solstolene — ${laid} af ${LOUNGER_COUNT}`;
+    }
+
+    this.dyn(caption(this, width / 2, height - 18, message,
+      waiting === 0 && laid === LOUNGER_COUNT ? 'done' : 'idle'));
   }
 
   private drawPool(cx: number, cy: number): Phaser.GameObjects.Container {
     const c = this.add.container(0, 0);
     const g = this.add.graphics();
 
-    shadow(g, cx - 200, cy - 88, 400, 176, 28, 5, 0.16);
+    shadow(g, cx - 196, cy - 86, 392, 172, 28, 5, 0.16);
     g.fillStyle(COLORS.white);
-    g.fillRoundedRect(cx - 200, cy - 88, 400, 176, 28);
+    g.fillRoundedRect(cx - 196, cy - 86, 392, 172, 28);
     g.fillStyle(COLORS.stone, 0.5);
-    g.fillRoundedRect(cx - 200, cy - 88, 400, 176, 28);
+    g.fillRoundedRect(cx - 196, cy - 86, 392, 172, 28);
     g.fillStyle(COLORS.white);
-    g.fillRoundedRect(cx - 193, cy - 81, 386, 162, 24);
+    g.fillRoundedRect(cx - 189, cy - 79, 378, 158, 24);
     g.fillStyle(COLORS.waterDeep);
-    g.fillRoundedRect(cx - 182, cy - 70, 364, 140, 20);
+    g.fillRoundedRect(cx - 178, cy - 68, 356, 136, 20);
     g.fillStyle(COLORS.water);
-    g.fillRoundedRect(cx - 182, cy - 70, 364, 126, 20);
+    g.fillRoundedRect(cx - 178, cy - 68, 356, 122, 20);
     g.fillStyle(COLORS.waterLight, 0.45);
-    g.fillEllipse(cx - 62, cy - 32, 124, 28);
-    g.fillEllipse(cx + 74, cy + 10, 90, 22);
+    g.fillEllipse(cx - 60, cy - 31, 120, 27);
+    g.fillEllipse(cx + 72, cy + 10, 88, 21);
     g.fillStyle(COLORS.white, 0.25);
-    g.fillEllipse(cx - 100, cy - 50, 52, 13);
+    g.fillEllipse(cx - 98, cy - 49, 50, 13);
     c.add(g);
-
 
     // animated surface line
     const wave = this.add.graphics();
@@ -95,8 +119,8 @@ export class PoolScene extends BaseScene {
         wave.clear();
         wave.lineStyle(2, COLORS.white, 0.28);
         wave.beginPath();
-        wave.moveTo(cx - 168, cy);
-        for (let x = cx - 168; x <= cx + 168; x += 10) {
+        wave.moveTo(cx - 164, cy);
+        for (let x = cx - 164; x <= cx + 164; x += 10) {
           wave.lineTo(x, cy + Math.sin((x + offset) * 0.045) * 5);
         }
         wave.strokePath();
@@ -104,7 +128,7 @@ export class PoolScene extends BaseScene {
       },
     });
 
-    const zone = this.add.zone(cx, cy, 356, 132).setInteractive({ useHandCursor: true });
+    const zone = this.add.zone(cx, cy, 348, 128).setInteractive({ useHandCursor: true });
     zone.on('pointerdown', (p: Phaser.Input.Pointer) => {
       audio.splash();
       showSplash(this, p.worldX, p.worldY);
@@ -115,65 +139,96 @@ export class PoolScene extends BaseScene {
   }
 
   private buildLoungers(): void {
-    const { width, height } = this.scale;
-    const spots = [
-      { x: 92, y: height * 0.5 },
-      { x: 92, y: height * 0.73 },
-      { x: width - 92, y: height * 0.68 },
-      { x: width - 92, y: height * 0.88 },
-    ];
-
-    spots.forEach((spot, i) => {
+    for (let i = 0; i < LOUNGER_COUNT; i++) {
+      const spot = this.loungerSpot(i);
       const hasTowel = gameState.pool.towels[i];
+      const taken = gameState.guestsAt('pool').some(g => g.lounger === i);
+
       const c = this.add.container(spot.x, spot.y);
       const g = this.add.graphics();
 
-      shadow(g, -32, 18, 64, 10, 5, 2, 0.14);
+      shadow(g, -34, 20, 68, 11, 5, 2, 0.14);
       g.fillStyle(COLORS.woodDeep);
-      g.fillRoundedRect(-30, -4, 60, 22, 6);
+      g.fillRoundedRect(-32, -4, 64, 24, 6);
       g.fillStyle(COLORS.wood);
-      g.fillRoundedRect(-30, -4, 60, 12, 6);
+      g.fillRoundedRect(-32, -4, 64, 13, 6);
       g.fillStyle(COLORS.woodDeep);
-      g.fillRoundedRect(-27, -20, 13, 17, 5);
-      g.fillRoundedRect(-26, 18, 5, 9, 2);
-      g.fillRoundedRect(21, 18, 5, 9, 2);
+      g.fillRoundedRect(-29, -22, 14, 19, 5);
+      g.fillRoundedRect(-28, 20, 6, 10, 2.5);
+      g.fillRoundedRect(22, 20, 6, 10, 2.5);
       c.add(g);
 
       if (hasTowel) {
         const towel = this.add.graphics();
         const shade = i % 2 === 0 ? COLORS.pink : COLORS.waterLight;
         towel.fillStyle(shade);
-        towel.fillRoundedRect(-27, -6, 54, 17, 4);
+        towel.fillRoundedRect(-29, -7, 58, 19, 4);
         towel.fillStyle(COLORS.white, 0.55);
-        towel.fillRect(-27, -2, 54, 3.5);
-        towel.fillRect(-27, 5, 54, 3.5);
+        towel.fillRect(-29, -2, 58, 4);
+        towel.fillRect(-29, 6, 58, 4);
         c.add(towel);
       }
 
-      c.add(caption(this, 0, hasTowel ? 34 : 36,
-        hasTowel ? 'Klar' : 'Læg håndklæde', hasTowel ? 'done' : 'idle'));
+      if (taken) {
+        // a sunhat left on the chair, so an occupied lounger reads as occupied
+        const hat = this.add.graphics();
+        hat.fillStyle(COLORS.sun);
+        hat.fillEllipse(6, 0, 30, 13);
+        hat.fillStyle(COLORS.sunDeep);
+        hat.fillEllipse(6, -4, 16, 11);
+        c.add(hat);
+      }
+
+      c.add(caption(this, 0, 40,
+        taken ? 'I brug' : hasTowel ? 'Klar' : 'Læg håndklæde',
+        hasTowel ? 'done' : 'idle'));
       this.dyn(c);
 
-      if (hasTowel) return;
+      if (hasTowel) continue;
 
-      tappable(this, c, 76, 54, () => {
-        if (!gameState.layTowel(i)) return;
-        audio.pop();
-        showStarBurst(this, spot.x, spot.y - 6);
+      tappable(this, c, 84, 60, () => this.layTowel(i, spot));
+    }
+  }
 
-        const allDone = gameState.pool.towels.every(Boolean);
-        rewardFor(this, 'pool', {
-          after: () => {
-            if (allDone) {
-              showSparkle(this, width / 2, height * 0.55, 300, 140);
-              showToast(this, width / 2, height * 0.3, 'Alle solstole er klar', '#4A7F33');
-              award(this, 2);
-            }
-            this.refresh();
-          },
-        });
-      });
-    });
+  /**
+   * Laying a towel.
+   *
+   * If somebody is standing there waiting for a lounger, this is the job "make the pool
+   * ready for a guest" and it raises the task — unless they have already been waiting past
+   * their patience, in which case it still gets done and simply does not pay.
+   */
+  private layTowel(index: number, spot: { x: number; y: number }): void {
+    if (!gameState.layTowel(index)) return;
+    const { width, height } = this.scale;
+    audio.pop();
+    showStarBurst(this, spot.x, spot.y - 8);
+
+    const seated = gameState.seatPoolGuests();
+    const served = seated[0];
+
+    if (served) {
+      showHearts(this, spot.x, spot.y - 30);
+      if (served.late) {
+        showToast(this, width / 2, height * 0.24,
+          `${served.guest.name} ventede for længe — ingen stjerne`, '#B9584A');
+        this.time.delayedCall(dur(300), () => this.refresh());
+        return;
+      }
+      rewardFor(this, 'pool', { after: () => this.refresh() });
+      return;
+    }
+
+    // Nobody waiting: this is getting ahead of the guests rather than serving one, so it
+    // pays a plain star and never asks a question.
+    const allDone = gameState.pool.towels.every(Boolean);
+    if (allDone) {
+      showSparkle(this, width / 2, height * 0.53, 300, 140);
+      showToast(this, width / 2, height * 0.26, 'Alle solstole er klar', '#4A7F33');
+      award(this, 2);
+    } else {
+      award(this, 1);
+    }
+    this.refresh();
   }
 
   private buildSlide(x: number, y: number): void {
@@ -211,14 +266,14 @@ export class PoolScene extends BaseScene {
     g.strokePath();
 
     c.add(g);
-    c.add(caption(this, 2, 100, 'Prøv rutsjebanen'));
+    c.add(caption(this, 2, 88, 'Prøv rutsjebanen'));
     this.dyn(c);
 
     tappable(this, c, 120, 140, () => {
       if (this.sliding) return;
       this.sliding = true;
 
-      const rider = this.add.container(x - 6, y - 62, [drawHead(this, 0, 0, COLORS.yellow, 0.9)])
+      const rider = this.add.container(x - 6, y - 62, [drawHead(this, 0, 0, COLORS.yellow, 0.95)])
         .setDepth(870);
 
       this.tweens.add({
@@ -234,7 +289,6 @@ export class PoolScene extends BaseScene {
           showStarBurst(this, x - 100, y + 30, 4);
           showToast(this, x - 110, y - 10, 'Juhuu!', '#B9584A');
           award(this);
-          this.events.emit('starsChanged', gameState.stars);
           this.tweens.add({
             targets: rider,
             alpha: 0,
@@ -254,73 +308,82 @@ export class PoolScene extends BaseScene {
     const c = this.add.container(x, y);
     const g = this.add.graphics();
 
-    shadow(g, -66, -14, 132, 34, 8, 3, 0.16);
+    shadow(g, -68, -14, 136, 34, 8, 3, 0.16);
     g.fillStyle(COLORS.woodDeep);
-    g.fillRoundedRect(-66, -14, 132, 34, 8);
+    g.fillRoundedRect(-68, -14, 136, 34, 8);
     g.fillStyle(COLORS.woodLight);
-    g.fillRoundedRect(-70, -20, 140, 12, 6);
+    g.fillRoundedRect(-72, -20, 144, 12, 6);
     c.add(g);
 
     const drinks = [
-      { color: COLORS.orange, x: -44 },
+      { color: COLORS.orange, x: -45 },
       { color: COLORS.pink, x: -15 },
-      { color: COLORS.green, x: 14 },
-      { color: COLORS.purple, x: 43 },
+      { color: COLORS.green, x: 15 },
+      { color: COLORS.purple, x: 45 },
     ];
 
     drinks.forEach(d => {
       const glass = this.add.graphics();
       glass.fillStyle(COLORS.white, 0.7);
-      glass.fillRoundedRect(-10, -17, 20, 33, { tl: 3, tr: 3, bl: 9, br: 9 });
+      glass.fillRoundedRect(-11, -18, 22, 35, { tl: 3, tr: 3, bl: 10, br: 10 });
       glass.fillStyle(d.color, 0.92);
-      glass.fillRoundedRect(-8, -5, 16, 19, { tl: 0, tr: 0, bl: 7, br: 7 });
+      glass.fillRoundedRect(-9, -5, 18, 20, { tl: 0, tr: 0, bl: 8, br: 8 });
       glass.fillStyle(COLORS.white, 0.6);
-      glass.fillRoundedRect(-8, -15, 6, 26, 3);
+      glass.fillRoundedRect(-9, -16, 6, 27, 3);
       // straw
       glass.fillStyle(COLORS.red);
-      glass.fillRoundedRect(2, -26, 3, 13, 1.5);
+      glass.fillRoundedRect(2, -28, 3.5, 14, 1.75);
 
-      const holder = this.add.container(d.x, -40, [glass]);
-      holder.setSize(30, 46);
+      const holder = this.add.container(d.x, -42, [glass]);
+      holder.setSize(32, 48);
       holder.setInteractive({ useHandCursor: true });
       holder.on('pointerdown', () => {
-        showHearts(this, x + d.x, y - 56);
+        showHearts(this, x + d.x, y - 58);
         this.tweens.add({ targets: holder, scale: 1.3, duration: 140, yoyo: true });
       });
       c.add(holder);
     });
 
-    c.add(caption(this, 0, 30, 'Drinks'));
+    // No caption: four coloured glasses on a bar need no label, and one here would sit on
+    // top of the nearest lounger's.
     this.dyn(c);
   }
 
+  /** Guests who got a lounger, floating about in the water. */
   private buildSwimmers(): void {
     const { width, height } = this.scale;
-    const guests = gameState.getCheckedInGuests().slice(0, 3);
-    const spots = [
-      { x: width / 2 - 82, y: height * 0.53 },
-      { x: width / 2 + 30, y: height * 0.5 },
-      { x: width / 2 - 16, y: height * 0.6 },
-    ];
+    const swimming = gameState.guestsAt('pool').filter(g => g.settledAt !== null);
 
-    guests.forEach((guest, i) => {
-      const spot = spots[i];
+    // Spread along the pool and staggered front to back, so that four speech bubbles can
+    // all be read at once rather than stacking into one white block.
+    const cx = width / 2;
+    const cy = height * 0.53;
+    const spots = [0, 1, 2, 3].map(i => ({
+      x: cx - 140 + i * 93,
+      y: cy + (i % 2 === 0 ? -34 : 20),
+    }));
+
+    swimming.forEach((guest, i) => {
+      const spot = spots[i % spots.length];
       const c = this.add.container(spot.x, spot.y);
 
       // ring float
       const ring = this.add.graphics();
       ring.fillStyle(COLORS.white);
-      ring.fillCircle(0, 6, 21);
+      ring.fillCircle(0, 6, 23);
       ring.fillStyle(COLORS.red);
-      ring.fillCircle(0, 6, 19);
+      ring.fillCircle(0, 6, 21);
       ring.fillStyle(COLORS.white);
-      ring.fillCircle(0, 6, 11);
+      ring.fillCircle(0, 6, 12);
       ring.fillStyle(COLORS.water, 0.55);
-      ring.fillCircle(0, 6, 9);
+      ring.fillCircle(0, 6, 10);
       c.add(ring);
-      c.add(drawHead(this, 0, -4, guest.color, 0.8));
-
+      c.add(drawHead(this, 0, -4, guest.color, 0.9));
       this.dyn(c);
+
+      const line = guestLine(guest);
+      sayOnce(guest, line);
+      this.dyn(drawSpeechBubble(this, spot.x, spot.y - 32, line.text, line.tone, 116));
 
       this.tweens.add({
         targets: c,
@@ -330,6 +393,30 @@ export class PoolScene extends BaseScene {
         repeat: -1,
         ease: 'Sine.easeInOut',
       });
+    });
+  }
+
+  /** Guests standing at the poolside with nowhere to lie down. */
+  private buildWaitingGuests(): void {
+    const { width, height } = this.scale;
+    const waiting = gameState.guestsAt('pool').filter(g => g.settledAt === null);
+
+    waiting.forEach((guest: GuestData, i) => {
+      const x = width / 2 - (waiting.length - 1) * 58 + i * 116;
+      const y = height * 0.78;
+
+      const c = this.add.container(x, y);
+      c.add(drawPerson(this, 0, 0, guest.color, 1.05));
+      c.add(this.add.text(0, 50, guest.name, text(SIZE.tiny, '#5A4E42', 'bold')).setOrigin(0.5));
+      this.dyn(c);
+
+      const line = guestLine(guest);
+      sayOnce(guest, line);
+      this.dyn(drawSpeechBubble(this, x, y - 54, line.text, line.tone, 150));
+
+      const bar = drawPatienceBar(this, x, y + 66, guest);
+      this.dyn(bar.object);
+      this.everyFrame(bar.update);
     });
   }
 }

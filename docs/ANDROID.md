@@ -34,8 +34,8 @@ the conditions rather than by installing anything.
 
 | | Why |
 | --- | --- |
-| **Read-aloud through Android's TTS** | `window.speechSynthesis` does not exist in a WebView — the Web Speech API has never been implemented there, only in Chrome proper. Without this, every prompt would be silent. `helpers/Speech.ts` feature-detects and routes to the native engine. |
-| **Landscape lock and immersive fullscreen** | The game is 960×600. A status bar across the lobby breaks the picture and a navigation bar sits where a child rests their thumbs. |
+| **A way out** | An immersive WebView has no system bars and no address bar, so without this there is no exit at all. The title screen's **Afslut** button calls `App.exitApp()`; on the web, where no page may close its own tab, it says goodbye instead. |
+| **Landscape lock and immersive fullscreen** | The game is 880×550. A status bar across the lobby breaks the picture and a navigation bar sits where a child rests their thumbs. |
 | **The hardware back button** | It means what the on-screen arrow means: room → map → title screen, and only then does it close the app. `addBackButton` registers the target and `helpers/Navigation.ts` answers the question, so the two buttons cannot disagree. During a task it does nothing — the chore is already done and the stars are already owed. |
 | **Keep-awake** | A child reading a task does not touch the screen for half a minute. |
 | **The save mirrored to native storage** | `localStorage` in a WebView is not durable: Android can clear web storage to reclaim space. Every write also goes to SharedPreferences and is read back if web storage comes up empty. |
@@ -95,7 +95,7 @@ variables it is debug-signed, which is fine for looking at but not for keeping.
 
 `npx cap open android` opens the project in Android Studio, where an emulator is the quickest
 way to see the wrapper behaviour that a browser cannot show: the immersive bars, the back
-button, and whether the phone has a Danish TTS voice installed.
+button, and the exit button actually closing the app.
 
 ## The icon
 

@@ -17,9 +17,24 @@ fixed — so it is deliberately written in the present tense about a version of 
 no longer exists. `README.md` describes what the game actually does now.
 
 All sixteen findings are fixed and every row of the "Suggested order" table at the bottom is
-shipped: redraw in place, smoke tests, sound and speech, the polish pass, the star shop, the
-task engine, and the content — 19 skills across 45 factories, seven interaction templates,
-20 things to buy. The suite is 36 tests.
+shipped: redraw in place, smoke tests, sound, the polish pass, the star shop, the task engine,
+and the content — 19 skills across 45 factories, seven interaction templates, 20 things to
+buy.
+
+Two of the recommendations below have since been reversed by playtesting, and the reasoning
+here is the wrong half of the argument in both cases:
+
+- **"Read-aloud is not optional."** It was built with `speechSynthesis`, and then removed.
+  On any device with a flat `da-DK` voice it sounded like a station announcement, and it read
+  out text the target child cannot read anyway. Guests babble nonsense syllables instead.
+- **"No wrong answers, ever."** A wrong tap costing nothing meant the fastest way through any
+  task was to tap every option in turn, which teaches only that tapping everything works. A
+  task now closes without paying after three misses — nothing is taken away, but not
+  everything is given either.
+
+The other thing that changed is that a task is raised by a *finished job* rather than by
+every tap, and that guests now walk a plan and lose patience. `README.md` describes what the
+game actually does now.
 
 ---
 

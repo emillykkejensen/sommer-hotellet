@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
-import { COLORS, FONT, INK_SOFT, SIZE, text } from '../config';
+import { COLORS, DEPTH, FONT, INK, INK_SOFT, SIZE, text } from '../config';
 import { button, drawCloud, drawFlower, drawSun, gradientBand, shadow } from '../helpers/Draw';
-import { gameState } from '../state/GameState';
+import { audio } from '../helpers/Audio';
+import { canExit, exitApp } from '../helpers/Native';
 import { dur, transition } from '../helpers/Motion';
 
 export class MainMenuScene extends Phaser.Scene {
@@ -23,7 +24,7 @@ export class MainMenuScene extends Phaser.Scene {
     const c2 = drawCloud(this, 640, 128, 0.68);
     this.tweens.add({ targets: c2, x: '-=140', duration: 18000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 
-    this.drawHotel(width / 2, height * 0.5);
+    this.drawHotel(width / 2, height * 0.52);
 
     const title = this.add.text(width / 2, height * 0.15, 'Sommer Hotellet', {
       fontFamily: FONT,
@@ -52,13 +53,6 @@ export class MainMenuScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
 
-    button(this, width / 2, height * 0.86, 'Spil', COLORS.green,
-      () => transition(this, 'HotelMapScene', 280), 210, 58, SIZE.title);
-
-    // A parent needs a way out of a stuck save that is not devtools.
-    if (gameState.stars > 0) {
-      this.addResetLink(width / 2, height - 26);
-    }
 
     for (let i = 0; i < 9; i++) {
       drawFlower(
@@ -69,31 +63,65 @@ export class MainMenuScene extends Phaser.Scene {
         0.62
       );
     }
+
+    button(this, width / 2, height * 0.82, 'Spil', COLORS.green,
+      () => transition(this, 'HotelMapScene', 280), 234, 62, SIZE.title);
+
+    // There was no way out of the game at all: a browser tab has no back, and the Android
+    // build runs fullscreen with the system bars hidden.
+    button(this, width / 2, height * 0.93, 'Afslut', COLORS.stoneDeep,
+      () => this.leave(), 168, 42, SIZE.label);
+
   }
 
-  private addResetLink(x: number, y: number): void {
-    const label = this.add.text(x, y, 'Start forfra', text(SIZE.tiny, '#FFFFFF', 'semibold'))
-      .setOrigin(0.5)
-      .setAlpha(0.75)
-      .setInteractive({ useHandCursor: true });
+  /**
+   * Leaving the game.
+   *
+   * On Android this closes the app, which is the only way out of a fullscreen, immersive
+   * WebView. A browser will not let a page close a tab it did not open, so there the
+   * button says goodbye and stops the music instead of silently doing nothing.
+   */
+  private leave(): void {
+    if (canExit()) {
+      exitApp();
+      return;
+    }
 
-    label.on('pointerover', () => label.setAlpha(1));
-    label.on('pointerout', () => label.setAlpha(0.75));
-    label.on('pointerdown', () => {
-      if (label.getData('confirming')) {
-        gameState.reset();
-        this.scene.restart();
-        return;
-      }
-      label.setData('confirming', true);
-      label.setText('Tryk igen for at slette');
-      this.time.delayedCall(3000, () => {
-        if (label.active) {
-          label.setData('confirming', false);
-          label.setText('Start forfra');
-        }
-      });
-    });
+    audio.stopMusic();
+    this.showFarewell();
+  }
+
+  private showFarewell(): void {
+    const { width, height } = this.scale;
+
+    const scrim = this.add.rectangle(0, 0, width, height, 0x2A2118, 0.55)
+      .setOrigin(0)
+      .setDepth(DEPTH.chrome)
+      .setInteractive();
+
+    const pw = 430;
+    const ph = 210;
+    const panel = this.add.container(width / 2, height / 2).setDepth(DEPTH.chrome + 10);
+
+    const g = this.add.graphics();
+    shadow(g, -pw / 2, -ph / 2, pw, ph, 24, 8, 0.28);
+    g.fillStyle(COLORS.white);
+    g.fillRoundedRect(-pw / 2, -ph / 2, pw, ph, 24);
+    panel.add(g);
+
+    panel.add(this.add.text(0, -58, 'Tak for i dag!', text(SIZE.title, INK, 'bold')).setOrigin(0.5));
+    panel.add(this.add.text(0, -14, 'Du kan lukke fanen nu.', {
+      ...text(SIZE.body, INK_SOFT, 'semibold'),
+      wordWrap: { width: pw - 60 },
+      align: 'center',
+    }).setOrigin(0.5));
+
+    const back = button(this, 0, 52, 'Spil videre', COLORS.green, () => {
+      scrim.destroy();
+      panel.destroy();
+      audio.syncMusic();
+    }, 200, 48, SIZE.body);
+    panel.add(back);
   }
 
   private drawHotel(cx: number, cy: number): void {

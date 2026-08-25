@@ -1,5 +1,16 @@
-export const GAME_WIDTH = 960;
-export const GAME_HEIGHT = 600;
+/**
+ * Logical game size.
+ *
+ * The canvas is scaled to FIT whatever it is given, so this is really a zoom control: a
+ * smaller logical stage means every drawn shape and every label covers more of the screen.
+ * It was 960x600, which on a phone held at arm's length by a five-year-old put the body
+ * text at around 3mm tall. Shrinking the stage ~9% and putting the type scale up ~12% on
+ * top of it lands everything roughly a fifth bigger without redrawing a single shape.
+ *
+ * The 1.6 aspect ratio is deliberate — changing it would letterbox instead of zoom.
+ */
+export const GAME_WIDTH = 880;
+export const GAME_HEIGHT = 550;
 
 /**
  * Palette. Softer and less saturated than a primary-colour set: every hue has a
@@ -76,13 +87,20 @@ export const INK_ON_DARK = '#FFFFFF';
  */
 export const FONT = "Nunito, 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
 
+/**
+ * Type scale. Every size in the game comes from here, so legibility is one edit.
+ *
+ * These are ~12% up on the first version, which together with the smaller logical stage
+ * makes on-screen text about a fifth larger. `tiny` is the floor: nothing a child has to
+ * read is allowed below it.
+ */
 export const SIZE = {
-  display: 44,
-  title: 26,
-  heading: 19,
-  body: 15,
-  label: 13,
-  tiny: 11,
+  display: 49,
+  title: 29,
+  heading: 21,
+  body: 17,
+  label: 15,
+  tiny: 13,
 };
 
 export type Weight = 'regular' | 'semibold' | 'bold';

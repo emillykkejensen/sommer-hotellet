@@ -20,7 +20,9 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    viewport: { width: 1200, height: 800 },
+    // Exactly the 1.6 the scenes are drawn for, so the stage is 880×550 and `AT` holds.
+    // tests/screen.spec.ts covers other shapes.
+    viewport: { width: 1200, height: 750 },
     launchOptions: {
       // The sandbox ships Chromium at a fixed path; fall back to Playwright's own.
       executablePath: process.env.CHROMIUM_PATH || undefined,

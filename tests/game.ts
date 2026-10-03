@@ -160,13 +160,27 @@ export class Game {
   }
 
   async tap(gx: number, gy: number): Promise<void> {
+    await this.tapWithoutSettling(gx, gy);
+    await this.settle();
+  }
+
+  /**
+   * Game coordinates to page pixels.
+   *
+   * The stage takes the screen's shape, so it is only GAME_WIDTH × GAME_HEIGHT at the 1.6
+   * the suite runs at; reading the live size keeps a tap honest on a phone-shaped viewport
+   * too. The `AT` table itself is written for the 1.6 stage.
+   */
+  private async toPage(gx: number, gy: number): Promise<{ x: number; y: number }> {
     const box = await this.page.locator('canvas').boundingBox();
     if (!box) throw new Error('canvas not found');
-    await this.page.mouse.click(
-      box.x + (gx / GAME_WIDTH) * box.width,
-      box.y + (gy / GAME_HEIGHT) * box.height
-    );
-    await this.settle();
+    const size = await this.page.evaluate(() => {
+      const g = (window as any).__game;
+      return g ? { w: g.scale.gameSize.width, h: g.scale.gameSize.height } : null;
+    });
+    const w = size?.w ?? GAME_WIDTH;
+    const h = size?.h ?? GAME_HEIGHT;
+    return { x: box.x + (gx / w) * box.width, y: box.y + (gy / h) * box.height };
   }
 
   /**
@@ -379,12 +393,8 @@ export class Game {
    * has already gone. Use this, assert, then `settle()`.
    */
   async tapWithoutSettling(gx: number, gy: number): Promise<void> {
-    const box = await this.page.locator('canvas').boundingBox();
-    if (!box) throw new Error('canvas not found');
-    await this.page.mouse.click(
-      box.x + (gx / GAME_WIDTH) * box.width,
-      box.y + (gy / GAME_HEIGHT) * box.height
-    );
+    const at = await this.toPage(gx, gy);
+    await this.page.mouse.click(at.x, at.y);
   }
 
   /**

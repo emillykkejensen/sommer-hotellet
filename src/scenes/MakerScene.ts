@@ -141,8 +141,17 @@ export abstract class MakerScene extends BaseScene {
   }
 
   /** One row of choices: the question on a tag, then a card per option. */
+  /** Where the rows of choices start: centred in the room between the wish list and the preview. */
+  private stepsLeft(): number {
+    const widest = Math.max(...this.steps.map(st => {
+      const n = st.options.length;
+      return n * (n > 4 ? 78 : 88) + (n - 1) * (n > 4 ? 10 : 14);
+    }));
+    return Math.max(200, Math.round((this.scale.width - 20) / 2 - widest / 2));
+  }
+
   private buildStep(step: MakerStep, y: number): void {
-    const startX = 206;
+    const startX = this.stepsLeft();
     const title = caption(this, 0, y - 60, step.title, this.picked[step.id] ? 'done' : 'idle');
     title.setX(startX + title.getBounds().width / 2);
     this.dyn(title);

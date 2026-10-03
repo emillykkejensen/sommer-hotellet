@@ -240,7 +240,7 @@ export class RoomScene extends BaseScene {
     }
 
     // between the vase and the bed, clear of both their captions
-    const x = 252;
+    const x = width / 2 - 188;
     const y = height * 0.63;
     const c = this.add.container(x, y);
     c.add(drawPerson(this, 0, 0, guest.color, 1.05));

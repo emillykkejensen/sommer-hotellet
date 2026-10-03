@@ -56,14 +56,15 @@ export class LobbyScene extends BaseScene {
     // around the key board on the right and the star counter above it.
     this.background.add(this.drawSconce(46, 168));
     this.background.add(this.drawSeaPicture(196, 192));
-    this.background.add(this.drawWelcomeSign(474, 176));
+    this.background.add(this.drawWelcomeSign(width / 2 + 34, 176));
   }
 
   /** Scenery that moves under its own power, so it must stay out of the bake. */
   protected buildAmbient(): void {
-    this.amb(this.drawClock(624, 128));
-    this.amb(this.drawCeilingFan(268, 92));
-    this.amb(this.drawCeilingFan(560, 92));
+    const { width } = this.scale;
+    this.amb(this.drawClock(width / 2 + 184, 128));
+    this.amb(this.drawCeilingFan(width / 2 - 172, 92));
+    this.amb(this.drawCeilingFan(width / 2 + 120, 92));
   }
 
   protected buildChrome(): void {

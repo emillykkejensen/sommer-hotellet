@@ -139,7 +139,8 @@ export class KitchenScene extends BaseScene {
       text(SIZE.body, INK_SOFT, 'semibold')).setOrigin(0.5));
 
     // a row lower than the title, so a guest following you in has room under the back button
-    RECIPES.forEach((r, i) => this.buildRecipeCard(r, 110 + i * 205, 146, r.name === recipe?.name));
+    RECIPES.forEach((r, i) =>
+      this.buildRecipeCard(r, width / 2 + (i - (RECIPES.length - 1) / 2) * 205, 146, r.name === recipe?.name));
 
     placeDecorations(this, 'kitchen', this.dynamic);
     this.buildOrderBoard(104, height * 0.5);

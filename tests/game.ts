@@ -55,11 +55,17 @@ export class Game {
     return Game.openWithStorage(page, Game.players([Game.PLAYER]));
   }
 
+  /** Numbers every seed, so a page that is opened twice gets the second one. */
+  private static seeds = 0;
+
   /**
    * Opens the game on exactly this localStorage.
    *
-   * Seeded once per tab rather than on every load, so a test can reload the page — which is
+   * Seeded once per call rather than on every load, so a test can reload the page — which is
    * what closing the game and opening it again looks like — and find what it left behind.
+   * Init scripts cannot be removed and all of them run on every load, so each seed carries
+   * a number and only writes when it is newer than the last one applied: a test that opens
+   * the page again with a new seed gets the new seed, and a reload gets none.
    */
   static async openWithStorage(page: Page, entries: Record<string, unknown>): Promise<Game> {
     const game = new Game(page);
@@ -68,14 +74,15 @@ export class Game {
     // matters because software WebGL runs at a few frames a second.
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await Game.installAudioSpy(page);
-    await page.addInitScript((seed) => {
-      if (window.sessionStorage.getItem('__seeded')) return;
-      window.sessionStorage.setItem('__seeded', '1');
+    await page.addInitScript(([seed, generation]) => {
+      const applied = Number(window.sessionStorage.getItem('__seeded') ?? 0);
+      if (generation <= applied) return;
+      window.sessionStorage.setItem('__seeded', String(generation));
       window.localStorage.clear();
       for (const [key, value] of Object.entries(seed)) {
         window.localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
       }
-    }, entries);
+    }, [entries, ++Game.seeds] as const);
     await page.goto('/');
     await game.waitForScene('MainMenuScene');
     return game;

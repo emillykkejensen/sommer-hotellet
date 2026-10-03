@@ -562,8 +562,9 @@ await game.expectSave(s => s.skills[skill].correct).toBe(1);
 on the title screen. `Game.openWithSave(page, patch)` seeds that player's save before the page
 loads, to reach a state without grinding for it, and `Game.guestWaitingAt('pool')` seeds the
 whole guest-plus-room shape for the common case of somebody standing there waiting.
-`game.save()` reads whichever player is active. Seeding happens once per tab, so a test can
-`page.reload()` — closing the game and opening it again — and find what it left behind.
+`game.save()` reads whichever player is active. Seeding happens once per `open`, not on every
+load, so a test can `page.reload()` — closing the game and opening it again — and find what
+it left behind.
 
 Player cards move with how many players there are, so they are not in `AT`: the harness finds
 them, the avatar discs and the delete key by the data they carry (`game.targets()`,

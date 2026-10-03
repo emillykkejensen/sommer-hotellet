@@ -8,15 +8,6 @@ import { AT, Game } from './game';
  * sound, and muting really does silence it.
  */
 
-/** A sandcastle one storey short of finished — the garden's task-raising job. */
-const ALMOST_BUILT = {
-  garden: {
-    flowers: [false, false, false, false, false],
-    sandcastle: 2,
-    apples: [false, false, false, false, false],
-  },
-};
-
 /**
  * Guest gibberish lives well below every other cue.
  *
@@ -102,14 +93,14 @@ test('a task plays feedback for both a right and a wrong answer', async ({ page 
   // Pinned to the pattern template: it has a real wrong answer that leaves the task open,
   // which is exactly what this test needs to hear.
   const game = await Game.openWithSave(page, {
-    ...ALMOST_BUILT,
+    ...Game.guestDoneAt('room'),
     settings: { mode: 'laer', matematik: true, dansk: true, voices: false, sound: true },
     skills: Game.focusSkill('mønstre'),
   });
   await game.start();
-  await game.enter('garden');
+  await game.enter('rooms');
 
-  await game.tap(AT.garden.sandbox.x, AT.garden.sandbox.y);
+  await game.helpGuest(0, 'Følg med mig');
   expect(await game.waitForTask()).toBe(true);
 
   // Identified by pitch, not by node count. Comparing how many sources two different
@@ -139,6 +130,11 @@ test('a guest speaking plays gibberish, and it can be switched off on its own', 
 
   const spoke = await game.countingSounds(() => game.enter('pool'));
   expect(spoke.pitches.filter(isBabble).length, 'the waiting guest should say something')
+    .toBeGreaterThan(1);
+
+  // and they answer when tapped
+  const answered = await game.countingSounds(() => game.tapGuest(0));
+  expect(answered.pitches.filter(isBabble).length, 'tapping a guest makes them talk')
     .toBeGreaterThan(1);
   game.expectNoErrors();
 });
@@ -180,7 +176,7 @@ test('the game never touches the browser speech synthesiser', async ({ page }) =
   await game.start();
   await game.enter('pool');
   await game.tap(AT.pool.lounger1.x, AT.pool.lounger1.y);
-  if (await game.waitForTask()) await game.solveTask();
+  await game.helpGuest(0, 'Giv solstol');
 
   expect(await page.evaluate(() => (window as any).__spoke),
     'nothing should reach speechSynthesis').toBe(0);

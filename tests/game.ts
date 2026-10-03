@@ -551,6 +551,171 @@ export class Game {
     }
   }
 
+  /* ------------------------------------------------------------- guests --- */
+
+  /**
+   * Where a guest is on screen: their figure, or their chip under the back button if they
+   * are following the player. Null when they are not drawn in any open scene.
+   */
+  async guestSpot(id: number): Promise<{ x: number; y: number } | null> {
+    return this.page.evaluate((guestId) => {
+      for (const scene of window.__game.scene.getScenes(true) as any[]) {
+        const found: { x: number; y: number }[] = [];
+        const walk = (objs: any[], ox: number, oy: number) => {
+          for (const o of objs || []) {
+            if (!o) continue;
+            const x = ox + (o.x || 0);
+            const y = oy + (o.y || 0);
+            if (o.input?.enabled && o.getData?.('guestId') === guestId) found.push({ x, y });
+            if (Array.isArray(o.list)) walk(o.list, x, y);
+          }
+        };
+        walk(scene.children.list, 0, 0);
+        if (found.length > 0) return found[0];
+      }
+      return null;
+    }, id);
+  }
+
+  /** The open guest card's bounds, or null when no card is open. */
+  private async cardBox(): Promise<{ x: number; y: number; w: number; h: number } | null> {
+    return this.page.evaluate(() => {
+      for (const scene of window.__game.scene.getScenes(true) as any[]) {
+        const card = scene.children.list.find((o: any) => o.name === 'guestCard' && o.active);
+        if (card) return { x: card.x, y: card.y, w: card.width, h: card.height };
+      }
+      return null;
+    });
+  }
+
+  async cardOpen(): Promise<boolean> {
+    return (await this.cardBox()) !== null;
+  }
+
+  /** Closes the card with its own button, if one is open. */
+  async closeCard(): Promise<void> {
+    const box = await this.cardBox();
+    if (!box) return;
+    await this.tap(box.x + box.w / 2 - 24, box.y - box.h / 2 + 24);
+  }
+
+  /**
+   * Taps a guest, which opens their card.
+   *
+   * A card already open can cover a guest standing low on the screen — a real child closes
+   * it or taps the guest's thought bubble — so this closes it first when it is in the way.
+   */
+  async tapGuest(id: number): Promise<void> {
+    let spot = await this.guestSpot(id);
+    if (!spot) throw new Error(`guest ${id} is not on screen`);
+    const box = await this.cardBox();
+    if (box && Math.abs(spot.x - box.x) < box.w / 2 && Math.abs(spot.y - box.y) < box.h / 2) {
+      await this.closeCard();
+      spot = await this.guestSpot(id);
+      if (!spot) throw new Error(`guest ${id} went away`);
+    }
+    await this.tap(spot.x, spot.y);
+  }
+
+  /** Every Text in the open card, joined — what the guest says and the button labels. */
+  async cardText(): Promise<string> {
+    return this.page.evaluate(() => {
+      const out: string[] = [];
+      for (const scene of window.__game.scene.getScenes(true) as any[]) {
+        const card = scene.children.list.find((o: any) => o.name === 'guestCard' && o.active);
+        if (!card) continue;
+        const walk = (objs: any[]) => {
+          for (const o of objs || []) {
+            if (o?.type === 'Text') out.push(o.text);
+            if (Array.isArray(o?.list)) walk(o.list);
+          }
+        };
+        walk(card.list);
+      }
+      return out.join(' | ');
+    });
+  }
+
+  expectCard(message?: string) {
+    return expect.poll(() => this.cardText(), { timeout: 12_000, message });
+  }
+
+  /** Taps the button on the open card that carries this label. */
+  async tapCardAction(label: string): Promise<void> {
+    const target = await this.page.evaluate((wanted) => {
+      for (const scene of window.__game.scene.getScenes(true) as any[]) {
+        const card = scene.children.list.find((o: any) => o.name === 'guestCard' && o.active);
+        if (!card) continue;
+        const hits: { x: number; y: number }[] = [];
+        const hasLabel = (o: any): boolean =>
+          o?.type === 'Text' ? o.text === wanted : (o?.list ?? []).some(hasLabel);
+        const walk = (objs: any[], ox: number, oy: number) => {
+          for (const o of objs || []) {
+            if (!o) continue;
+            const x = ox + (o.x || 0);
+            const y = oy + (o.y || 0);
+            if (o.input && hasLabel(o)) hits.push({ x, y });
+            else if (Array.isArray(o.list)) walk(o.list, x, y);
+          }
+        };
+        walk(card.list, card.x, card.y);
+        if (hits.length > 0) return hits[0];
+      }
+      return null;
+    }, label);
+    if (!target) throw new Error(`no "${label}" on the card (card says: ${await this.cardText()})`);
+    await this.tap(target.x, target.y);
+  }
+
+  /** Tap a guest, then a button on their card. */
+  async helpGuest(id: number, label: string): Promise<void> {
+    await this.tapGuest(id);
+    await this.tapCardAction(label);
+  }
+
+  /**
+   * Fast-forwards a guest through their swim, meal or sleep.
+   *
+   * Like `ageGuest`, this winds the clock back on the live state and lets the game's own
+   * tick notice, so the scene redraws exactly as it would have.
+   */
+  async finishEnjoying(id: number): Promise<void> {
+    await this.page.evaluate((guestId) => {
+      const guest = window.__state.guests.find(g => g.id === guestId);
+      if (!guest || guest.settledAt === null) throw new Error(`guest ${guestId} is not settled`);
+      guest.settledAt -= 60_000;
+    }, id);
+    await this.page.waitForTimeout(2_500);
+    await this.settle();
+  }
+
+  /**
+   * Taps the interactive thing in a scene that is labelled with this text — a shop card,
+   * an option at the ice cream stand, a button.
+   */
+  async tapLabelled(sceneKey: string, label: string): Promise<void> {
+    const spot = await this.page.evaluate(([key, wanted]) => {
+      const scene = window.__game.scene.getScene(key) as any;
+      const found: { x: number; y: number }[] = [];
+      const walk = (objs: any[], ox: number, oy: number) => {
+        for (const o of objs || []) {
+          if (!o) continue;
+          const x = ox + (o.x || 0);
+          const y = oy + (o.y || 0);
+          if (o.input) {
+            const labels = (o.list || []).filter((c: any) => c.type === 'Text').map((c: any) => c.text);
+            if (labels.includes(wanted)) found.push({ x, y });
+          }
+          if (Array.isArray(o.list)) walk(o.list, x, y);
+        }
+      };
+      walk(scene.children.list, 0, 0);
+      return found[0] ?? null;
+    }, [sceneKey, label] as const);
+    if (!spot) throw new Error(`nothing labelled "${label}" in ${sceneKey}`);
+    await this.tap(spot.x, spot.y);
+  }
+
   /* ------------------------------------------------------------ helpers --- */
 
   /**
@@ -621,12 +786,18 @@ export class Game {
       plan: ['pool', 'restaurant', 'room'],
       step: 0,
       at: 'lobby',
+      heading: null,
       since: 0,
       settledAt: null,
+      done: false,
       gaveUp: false,
       lounger: null,
+      inBed: false,
       order: [],
       served: [],
+      extras: [],
+      extrasGot: [],
+      wearing: null,
       ...patch,
     };
   }
@@ -652,6 +823,51 @@ export class Game {
         vacuumed: false, towelsFolded: false, guestId: i === 0 ? 0 : null, theme: i,
       })),
       nextGuestId: 1,
+    };
+  }
+
+  /**
+   * A guest who has had their swim, meal or night's sleep and wants to be led on — the
+   * moment a stay at the pool or in a room is paid for, and in Lær mode the moment that
+   * asks a question. Their next stop is the restaurant unless the patch says otherwise.
+   */
+  static guestDoneAt(
+    at: 'pool' | 'restaurant' | 'room',
+    patch: Record<string, unknown> = {}
+  ): Record<string, unknown> {
+    const seed = Game.guestWaitingAt(at, {
+      plan: at === 'restaurant' ? ['restaurant', 'pool'] : [at, 'restaurant'],
+      settledAt: 1,
+      done: true,
+      lounger: at === 'pool' ? 0 : null,
+      inBed: at === 'room',
+      served: at === 'restaurant' ? ['Suppe'] : [],
+      ...patch,
+    });
+    return {
+      ...seed,
+      ...(at === 'pool' ? { pool: { towels: [true, false, false, false] } } : {}),
+    };
+  }
+
+  /**
+   * Guests at the restaurant tables, each waiting for one dish that is already cooked.
+   * Every one of them is a finished order — the kitchen's job, and its question — away.
+   */
+  static seatedGuests(count: number, dish = 'Suppe'): Record<string, unknown> {
+    return {
+      guests: Array.from({ length: count }, (_, i) => Game.guest(i, {
+        checkedIn: true, roomNumber: i % 3, plan: ['restaurant', 'pool'], at: 'restaurant', order: [dish],
+      })),
+      rooms: Array.from({ length: 3 }, (_, i) => ({
+        bedMade: false, curtainsOpen: false, flowersPlaced: false,
+        vacuumed: false, towelsFolded: false, guestId: i < count ? i : null, theme: i,
+      })),
+      nextGuestId: count,
+      kitchen: {
+        recipe: null, added: [], showingDining: true,
+        ready: Array(count).fill(dish), dishesServed: 0,
+      },
     };
   }
 
@@ -710,6 +926,7 @@ const SCENE_FOR_AREA = {
   kitchen: 'KitchenScene',
   pool: 'PoolScene',
   garden: 'GardenScene',
+  boutique: 'BoutiqueScene',
 } as const;
 
 /** Game-coordinate click targets, kept next to the scenes they belong to. */
@@ -722,8 +939,9 @@ export const AT = {
     lobby: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.55 },
     rooms: { x: GAME_WIDTH / 2 - 200, y: GAME_HEIGHT * 0.37 },
     kitchen: { x: GAME_WIDTH / 2 + 200, y: GAME_HEIGHT * 0.37 },
-    pool: { x: GAME_WIDTH / 2 - 178, y: GAME_HEIGHT * 0.79 },
-    garden: { x: GAME_WIDTH / 2 + 178, y: GAME_HEIGHT * 0.79 },
+    pool: { x: GAME_WIDTH / 2 - 190, y: GAME_HEIGHT * 0.79 },
+    garden: { x: GAME_WIDTH / 2 + 190, y: GAME_HEIGHT * 0.79 },
+    boutique: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.79 },
   },
 
   room: {
@@ -738,8 +956,8 @@ export const AT = {
 
   kitchen: {
     toggle: { x: 200, y: 34 },
-    recipe1: { x: 110, y: 132 },
-    recipe2: { x: 315, y: 132 },
+    recipe1: { x: 110, y: 146 },
+    recipe2: { x: 315, y: 146 },
     ingredient1: { x: GAME_WIDTH / 2 - 200, y: GAME_HEIGHT * 0.8 },
     ingredient2: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.8 },
     ingredient3: { x: GAME_WIDTH / 2 + 200, y: GAME_HEIGHT * 0.8 },
@@ -748,10 +966,11 @@ export const AT = {
   },
 
   pool: {
-    lounger1: { x: 88, y: GAME_HEIGHT * 0.44 },
-    lounger2: { x: 88, y: GAME_HEIGHT * 0.72 },
+    lounger1: { x: 88, y: GAME_HEIGHT * 0.4 },
+    lounger2: { x: 88, y: GAME_HEIGHT * 0.62 },
     lounger3: { x: GAME_WIDTH - 88, y: GAME_HEIGHT * 0.58 },
     lounger4: { x: GAME_WIDTH - 88, y: GAME_HEIGHT * 0.86 },
+    iceStand: { x: 112, y: GAME_HEIGHT * 0.875 - 20 },
   },
 
   garden: {
@@ -766,7 +985,7 @@ export const AT = {
     leaving1: { x: GAME_WIDTH - 128, y: GAME_HEIGHT * 0.76 },
   },
 
-  shop: { x: GAME_WIDTH - 74, y: 86 },
+  shop: { x: GAME_WIDTH - 90, y: 98 },
   shopTabThings: { x: GAME_WIDTH / 2 - 95, y: 140 },
   shopTabHotel: { x: GAME_WIDTH / 2 + 95, y: 140 },
   settings: { x: 56, y: 86 },

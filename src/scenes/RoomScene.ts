@@ -1,15 +1,15 @@
 import Phaser from 'phaser';
 import { COLORS, INK, INK_SOFT, LINE, ROOM_THEMES, SIZE, text } from '../config';
-import { Chore, GuestData, gameState } from '../state/GameState';
+import { Chore, Destination, GuestData, gameState } from '../state/GameState';
 import { THEME_UNLOCKS } from '../state/Shop';
 import { showCheckmark, showSparkle, showStarBurst, showToast } from '../objects/FeedbackEffects';
-import { drawPatienceBar, drawSleepZs, drawSpeechBubble, guestLine, sayOnce } from '../objects/Guests';
-import { addBackButton, addStarCounter, award } from '../ui/Chrome';
-import { rewardFor } from '../helpers/Reward';
+import { drawSleepZs } from '../objects/Guests';
+import { paintBed } from '../objects/Icons';
+import { addBackButton, addStarCounter } from '../ui/Chrome';
 import { placeDecorations } from './ShopScene';
 import { caption, drawFlower, drawHead, drawPerson, progressBar, shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
-import { dur, wobble } from '../helpers/Motion';
+import { wobble } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
 
 interface ChoreSpec {
@@ -67,8 +67,19 @@ export class RoomScene extends BaseScene {
     addStarCounter(this);
   }
 
+  /** Guests are led here to sleep; the view turns to the room of the one who arrived. */
+  protected serves(): Destination {
+    return 'room';
+  }
+
+  protected onArrivals(arrived: GuestData[]): void {
+    const room = arrived[0]?.roomNumber;
+    if (room !== null && room !== undefined) this.currentRoom = room;
+  }
+
   protected buildDynamic(): void {
     const { width, height } = this.scale;
+    if (this.currentRoom >= gameState.roomCount) this.currentRoom = 0;
     const room = gameState.rooms[this.currentRoom];
     const theme = ROOM_THEMES[room.theme] ?? ROOM_THEMES[0];
 
@@ -90,7 +101,7 @@ export class RoomScene extends BaseScene {
 
     this.buildRoomTabs();
 
-    this.dyn(this.add.text(width / 2, 78, `Rum ${this.currentRoom + 1} · ${theme.name}`,
+    this.dyn(this.add.text(width / 2, 78, `Værelse ${this.currentRoom + 1} · ${theme.name}`,
       text(SIZE.heading, INK_SOFT, 'bold')).setOrigin(0.5));
 
     // to the right of the room name, so the swatches are not mistaken for another
@@ -103,10 +114,10 @@ export class RoomScene extends BaseScene {
     }
 
     const guest = gameState.guestInRoom(this.currentRoom);
-    const sleeping = guest && guest.at === 'room' ? guest : null;
-    if (sleeping) this.buildRoomGuest(sleeping);
+    const here = guest && guest.at === 'room' ? guest : null;
+    if (here) this.buildRoomGuest(here);
 
-    this.dyn(caption(this, width / 2, height - 22, this.roomHint(guest, sleeping), 
+    this.dyn(caption(this, width / 2, height - 22, this.roomHint(guest, here),
       gameState.isRoomClean(this.currentRoom) ? 'done' : 'idle'));
 
     placeDecorations(this, 'rooms', this.dynamic);
@@ -168,55 +179,41 @@ export class RoomScene extends BaseScene {
     tappable(this, c, spec.hitW, spec.hitH, () => {
       if (!gameState.completeChore(this.currentRoom, spec.key)) return;
       audio.pop();
-      showStarBurst(this, spec.x, spec.y - 10);
+      showStarBurst(this, spec.x, spec.y - 10, 3);
       showCheckmark(this, spec.x, spec.y - 34);
 
       /*
-       * One chore is a tap, not a job.
+       * Making up a room is preparation, and it pays nothing on its own.
        *
-       * Every single chore used to raise a task, so making up one room asked five
-       * questions. A tap pays a plain star now; the *room being finished* is the job, and
-       * that is what asks — and only when somebody is actually waiting to sleep in it.
+       * Every chore used to pay a star, and a finished room three — which meant the stars
+       * came from housework rather than from guests. The star comes now when somebody has
+       * actually slept here.
        */
-      if (!gameState.isRoomClean(this.currentRoom)) {
-        award(this, 1);
-        this.refresh();
-        return;
-      }
-      this.finishRoom();
+      if (gameState.isRoomClean(this.currentRoom)) this.finishRoom();
+      this.refresh();
     });
   }
 
-  /** The last chore in a room: the job that pays, and the only one that asks. */
+  /** The last chore: a flourish, and a nudge towards whoever is waiting for the bed. */
   private finishRoom(): void {
     const { width, height } = this.scale;
-    const settled = gameState.settleRoomGuest(this.currentRoom);
-
     showSparkle(this, width / 2, height * 0.42, width * 0.7, height * 0.42);
 
-    if (settled) {
-      if (settled.late) {
-        showToast(this, width / 2, height * 0.28,
-          `${settled.guest.name} ventede for længe — ingen stjerne`, '#B9584A');
-        this.time.delayedCall(dur(300), () => this.refresh());
-        return;
-      }
-      showToast(this, width / 2, height * 0.28, 'Værelset er klar — godnat!', '#4A7F33');
-      rewardFor(this, 'rooms', { base: 2, after: () => this.refresh() });
-      return;
-    }
-
-    // Made up before anybody asked for it. Worth doing, worth a star, not worth a question.
-    showToast(this, width / 2, height * 0.28, 'Værelset er klar til en gæst', '#4A7F33');
-    award(this, 3);
-    this.refresh();
+    const guest = gameState.guestInRoom(this.currentRoom);
+    const waiting = guest && guest.at === 'room' && gameState.guestPhase(guest) !== 'ready'
+      && guest.settledAt === null;
+    showToast(this, width / 2, height * 0.28,
+      waiting ? `Værelset er klar — tryk på ${guest.name}` : 'Værelset er klar til en gæst',
+      '#4A7F33');
   }
 
-  private roomHint(guest: GuestData | null, sleeping: GuestData | null): string {
+  private roomHint(guest: GuestData | null, here: GuestData | null): string {
     const clean = gameState.isRoomClean(this.currentRoom);
-    if (sleeping) {
-      if (sleeping.settledAt !== null) return `${sleeping.name} sover`;
-      return clean ? `${sleeping.name} lægger sig` : `${sleeping.name} venter — gør værelset klar`;
+    if (here) {
+      const phase = gameState.guestPhase(here);
+      if (phase === 'happy') return `${here.name} sover`;
+      if (phase === 'ready') return `${here.name} er vågen — tryk på dem, og vis dem vej`;
+      return clean ? `${here.name} venter — tryk på dem` : `${here.name} venter — gør værelset klar`;
     }
     if (guest) return `${guest.name} bor her, men er et andet sted i hotellet`;
     return clean ? 'Værelset er klar til en gæst' : 'Gør værelset klar';
@@ -225,39 +222,29 @@ export class RoomScene extends BaseScene {
   /**
    * The guest who came here to sleep.
    *
-   * Waiting, they stand by the door and say so. Once the room is finished they are in the
-   * bed with a "zzz" over them, which is the clearest possible sign the job is done.
+   * Waiting, or awake again and wanting to be shown where to go next, they stand by the
+   * door. Asleep, they are in the bed with a "zzz" over them, which is the clearest
+   * possible sign the job is done.
    */
   private buildRoomGuest(guest: GuestData): void {
     const { width, height } = this.scale;
 
-    if (guest.settledAt !== null) {
+    if (gameState.guestPhase(guest) === 'happy') {
       const bedX = width / 2 - 40;
       const bedY = height * 0.57;
       const c = this.add.container(bedX - 62, bedY - 12);
       c.add(drawHead(this, 0, 0, guest.color, 0.95));
-      this.dyn(c);
+      this.addGuest(guest, c, { w: 60, h: 50, thoughtY: -30 });
       this.dyn(drawSleepZs(this, bedX - 26, bedY - 34));
-
-      const line = guestLine(guest);
-      sayOnce(guest, line);
-      this.dyn(drawSpeechBubble(this, bedX + 60, bedY - 62, line.text, line.tone, 170));
       return;
     }
 
-    const x = 214;
+    // between the vase and the bed, clear of both their captions
+    const x = 252;
     const y = height * 0.63;
     const c = this.add.container(x, y);
     c.add(drawPerson(this, 0, 0, guest.color, 1.05));
-    this.dyn(c);
-
-    const line = guestLine(guest);
-    sayOnce(guest, line);
-    this.dyn(drawSpeechBubble(this, x + 8, y - 54, line.text, line.tone, 160));
-
-    const bar = drawPatienceBar(this, x, y + 52, guest);
-    this.dyn(bar.object);
-    this.everyFrame(bar.update);
+    this.addGuest(guest, c, { w: 70, h: 96, thoughtY: -44, barY: 52 });
   }
 
   /**
@@ -303,15 +290,23 @@ export class RoomScene extends BaseScene {
     return c;
   }
 
+  /**
+   * One tab per room.
+   *
+   * "Værelse 1" while they fit; with five or six rooms the tabs would run into the star
+   * counter, so they shrink to a bed and a number.
+   */
   private buildRoomTabs(): void {
     const { width } = this.scale;
     const rooms = gameState.roomCount;
+    const compact = rooms > 4;
+    const w = compact ? 62 : 104;
+    const step = w + 8;
     for (let i = 0; i < rooms; i++) {
       const isActive = i === this.currentRoom;
       const theme = ROOM_THEMES[gameState.rooms[i].theme] ?? ROOM_THEMES[0];
-      const w = 90;
       const h = 36;
-      const x = width / 2 + (i - (rooms - 1) / 2) * 98;
+      const x = width / 2 + (i - (rooms - 1) / 2) * step;
 
       const c = this.add.container(x, 38);
       const g = this.add.graphics();
@@ -322,18 +317,23 @@ export class RoomScene extends BaseScene {
         g.fillStyle(COLORS.white, 0.7);
       }
       g.fillRoundedRect(-w / 2, -h / 2, w, h, h / 2);
+      c.add(g);
+
+      if (compact) {
+        const icon = this.add.graphics().setPosition(-11, 0);
+        paintBed(icon, 0.7);
+        c.add(icon);
+      }
+      c.add(this.add.text(compact ? 13 : 0, 0, compact ? `${i + 1}` : `Værelse ${i + 1}`,
+        text(SIZE.label, isActive ? '#FFFFFF' : INK, 'bold')).setOrigin(0.5));
 
       const occupied = gameState.rooms[i].guestId !== null;
       const guest = gameState.guestInRoom(i);
-      const waiting = !!guest && guest.at === 'room' && guest.settledAt === null;
-      const label = this.add.text(0, 0, `Rum ${i + 1}`,
-        text(SIZE.label, isActive ? '#FFFFFF' : INK, 'bold')).setOrigin(0.5);
+      const needsYou = !!guest && guest.at === 'room' && gameState.needsPlayer(guest);
 
-      c.add([g, label]);
-
-      // A guest waiting to sleep may be in a room the player is not looking at, and there
-      // is nothing else on this screen to say so.
-      if (waiting) {
+      // A guest waiting in a room the player is not looking at, and nothing else on this
+      // screen to say so.
+      if (needsYou) {
         const dot = this.add.circle(w / 2 - 10, -h / 2 + 8, 8, COLORS.red)
           .setStrokeStyle(2, COLORS.white);
         c.add(dot);
@@ -348,6 +348,8 @@ export class RoomScene extends BaseScene {
       if (!isActive) {
         tappable(this, c, w, h, () => {
           this.currentRoom = i;
+          // the last room's guest stays behind, and so does their card
+          this.closeCard();
           this.refresh();
         });
       }

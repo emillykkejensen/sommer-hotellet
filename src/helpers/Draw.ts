@@ -780,6 +780,13 @@ export function drawPerson(
   return c;
 }
 
+/**
+ * Where `drawHead` puts the head, in unscaled units: its centre, its radius and the eye
+ * line. Anything worn on the head — a sun hat, sunglasses — is drawn against these, so it
+ * keeps fitting if the face is redrawn.
+ */
+export const HEAD = { cy: -9, r: 11, eyeY: -10 };
+
 /** Head-and-shoulders only — for guests seen behind a table or in the pool. */
 export function drawHead(
   scene: Phaser.Scene,

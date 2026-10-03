@@ -188,13 +188,16 @@ const patternFactories: TaskFactory[] = [
     },
   },
   {
-    skill: 'mønstre', level: 3, areas: ['garden'],
+    // Was the garden's, back when the garden asked questions. Nobody stays in the garden,
+    // so nothing there pays or asks any more; towels are folded in the rooms and laid out
+    // at the pool, so it lives there now.
+    skill: 'mønstre', level: 3, areas: ['rooms', 'pool'],
     make: () => {
       const start = between(1, 3);
       const step = between(2, 3);
       const seq = [start, start + step, start + step * 2];
       return task('mønstre', 3,
-        `Vi planter ${seq.join(', ')} … hvor mange i næste række?`,
+        `Vi folder ${seq.join(', ')} håndklæder … hvor mange i næste stak?`,
         { template: 'number-pad', answer: start + step * 3 }, 3);
     },
   },

@@ -12,41 +12,30 @@ const SHOP = '/src/state/Shop.ts';
  * is the only thing that spends. Testing them apart would miss the point.
  */
 
-/** A garden one watering short of a finished flower bed — the job that raises a task. */
-const ALMOST_WATERED = {
-  garden: {
-    flowers: [true, true, true, true, false],
-    sandcastle: 0,
-    apples: [false, false, false, false, false],
-  },
-};
-
-/** A sandcastle one storey short of finished. */
-const ALMOST_BUILT = {
-  garden: {
-    flowers: [false, false, false, false, false],
-    sandcastle: 2,
-    apples: [false, false, false, false, false],
-  },
+/** A guest at the desk waiting for a key — the lobby's job, and its question. */
+const ARRIVAL = {
+  guests: [Game.guest(0)],
+  nextGuestId: 1,
 };
 
 test('free play pays stars without raising a task', async ({ page }) => {
   const game = await Game.openWithSave(page, {
+    ...ARRIVAL,
     settings: { mode: 'leg', matematik: true, dansk: true, voices: false },
   });
   await game.start();
-  await game.enter('pool');
+  await game.enter('lobby');
 
-  await game.tap(AT.pool.lounger1.x, AT.pool.lounger1.y);
-  await game.expectSave(s => s.pool.towels[0]).toBe(true);
+  await game.helpGuest(0, 'Giv nøgle til værelse 1');
+  await game.expectSave(s => s.guests[0].checkedIn).toBe(true);
   expect(await game.taskOpen()).toBe(false);
   expect(await game.stars()).toBeGreaterThan(0);
   game.expectNoErrors();
 });
 
-test('a single tap never raises a task — only a finished job does', async ({ page }) => {
+test('a chore never raises a task — only something done for a guest does', async ({ page }) => {
   // Every chore used to ask a question, so making up one room asked five and cooking one
-  // bowl of soup asked three. Taps pay a plain star now; the job asks.
+  // bowl of soup asked three. Now housework neither asks nor pays; the guest does.
   const game = await Game.openWithSave(page, {
     settings: { mode: 'laer', matematik: true, dansk: true, voices: false },
   });
@@ -56,28 +45,28 @@ test('a single tap never raises a task — only a finished job does', async ({ p
   await game.tap(AT.room.bed.x, AT.room.bed.y);
   await game.expectSave(s => s.rooms[0].bedMade, 'the chore still happens').toBe(true);
   expect(await game.taskOpen(), 'one chore is not a job').toBe(false);
-  expect(await game.stars(), 'and it still pays something').toBeGreaterThan(0);
+  expect(await game.stars(), 'and it pays nothing on its own').toBe(0);
   game.expectNoErrors();
 });
 
 test('Lær mode raises a task, and solving it pays and records the skill', async ({ page }) => {
   const game = await Game.openWithSave(page, {
-    ...ALMOST_WATERED,
+    ...ARRIVAL,
     settings: { mode: 'laer', matematik: true, dansk: true, voices: false },
   });
   await game.start();
-  await game.enter('garden');
+  await game.enter('lobby');
 
   const before = await game.stars();
-  await game.tap(AT.garden.wateringCan.x, AT.garden.wateringCan.y);
-  expect(await game.waitForTask(), 'finishing the bed should raise a task').toBe(true);
+  await game.helpGuest(0, 'Giv nøgle til værelse 1');
+  expect(await game.waitForTask(), 'handing over a key should raise a task').toBe(true);
 
   // the world already changed; the task decides the stars
-  expect((await game.save()).garden.flowers.filter(Boolean)).toHaveLength(5);
+  expect((await game.save()).guests[0].checkedIn).toBe(true);
   expect(await game.stars()).toBe(before);
 
   const { skill } = await game.solveTask();
-  await game.expectSave(s => s.stars, 'a solved task pays').toBeGreaterThan(1);
+  await game.expectSave(s => s.stars, 'a solved task pays').toBeGreaterThan(0);
   await game.expectSave(s => s.skills[skill]?.correct, 'the attempt is recorded').toBe(1);
   game.expectNoErrors();
 });
@@ -85,16 +74,17 @@ test('Lær mode raises a task, and solving it pays and records the skill', async
 test('a wrong answer costs a try and pays less, but does not end the task', async ({ page }) => {
   // Pinned to the pattern template, which has a genuine wrong answer. Counting tasks
   // succeed the moment the target is reached, so "answer it wrong" is not a state a
-  // settled test can reach there.
+  // settled test can reach there. Patterns live in the rooms, so the job is a guest who
+  // has slept and is led on.
   const game = await Game.openWithSave(page, {
-    ...ALMOST_BUILT,
+    ...Game.guestDoneAt('room'),
     settings: { mode: 'laer', matematik: true, dansk: true, voices: false },
     skills: Game.focusSkill('mønstre'),
   });
   await game.start();
-  await game.enter('garden');
+  await game.enter('rooms');
 
-  await game.tap(AT.garden.sandbox.x, AT.garden.sandbox.y);
+  await game.helpGuest(0, 'Følg med mig');
   expect(await game.waitForTask()).toBe(true);
   expect(await game.triesLeft(), 'three tries to begin with').toBe(3);
 
@@ -116,14 +106,14 @@ test('running out of tries closes the task and pays nothing', async ({ page }) =
   // Pinned to mønstre level 3, which is a number pad: a pick-one or a pattern runs out of
   // wrong answers to give before the third miss, because each one is taken off the board.
   const game = await Game.openWithSave(page, {
-    ...ALMOST_BUILT,
+    ...Game.guestDoneAt('room'),
     settings: { mode: 'laer', matematik: true, dansk: true, voices: false },
     skills: Game.focusSkill('mønstre', 3),
   });
   await game.start();
-  await game.enter('garden');
+  await game.enter('rooms');
 
-  await game.tap(AT.garden.sandbox.x, AT.garden.sandbox.y);
+  await game.helpGuest(0, 'Følg med mig');
   expect(await game.waitForTask()).toBe(true);
   const before = await game.stars();
 
@@ -140,13 +130,14 @@ test('running out of tries closes the task and pays nothing', async ({ page }) =
   expect(save.skills['mønstre'].seen, 'the attempt is still recorded').toBe(1);
   expect(save.skills['mønstre'].correct).toBe(0);
 
-  // and the sandcastle the child built is still built — the world is never rolled back
-  expect(save.garden.sandcastle).toBe(3);
+  // and the guest still set off — the world is never rolled back
+  expect(save.guests[0].at).toBe('following');
   game.expectNoErrors();
 });
 
 test('three right in a row promotes a skill to the next level', async ({ page }) => {
   const game = await Game.openWithSave(page, {
+    ...Game.seatedGuests(5),
     stars: 0,
     settings: { mode: 'laer', matematik: true, dansk: false, voices: false },
     // One tælling task away from a promotion, with every other skill marked well
@@ -159,10 +150,10 @@ test('three right in a row promotes a skill to the next level', async ({ page })
   await game.start();
   await game.enter('kitchen');
 
-  // cooking is the repeatable job, so it is the repeatable way to be asked something
+  // Five tables, each one dish from a finished order: the repeatable way to be asked.
   let promoted = false;
   for (let i = 0; i < 5 && !promoted; i++) {
-    await game.cookDish();
+    await game.helpGuest(i, 'Server suppe');
     if (!(await game.waitForTask())) continue;
     const { skill } = await game.solveTask();
     if (skill === 'tælling') {
@@ -175,6 +166,7 @@ test('three right in a row promotes a skill to the next level', async ({ page })
 
 test('every number-pad key is reachable', async ({ page }) => {
   const game = await Game.openWithSave(page, {
+    ...Game.seatedGuests(1),
     settings: { mode: 'laer', matematik: true, dansk: false, voices: false },
     // minus at level 2 uses the number pad; every other skill is marked well practised so
     // the picker (least-practised first) reaches for it
@@ -183,7 +175,7 @@ test('every number-pad key is reachable', async ({ page }) => {
   await game.start();
   await game.enter('kitchen');
 
-  await game.cookDish();
+  await game.helpGuest(0, 'Server suppe');
   expect(await game.waitForTask()).toBe(true);
 
   const controls = await game.taskControls();
@@ -279,7 +271,7 @@ test('the fourth room upgrade adds a real room everywhere', async ({ page }) => 
 
   // three rooms to begin with
   await game.enter('rooms');
-  await game.expectScreen('RoomScene').not.toContain('Rum 4');
+  await game.expectScreen('RoomScene').not.toContain('Værelse 4');
   await game.leave();
 
   await game.tap(AT.shop.x, AT.shop.y);
@@ -297,7 +289,7 @@ test('the fourth room upgrade adds a real room everywhere', async ({ page }) => 
   await game.tap(AT.back.x, AT.back.y);
   await game.waitForScene('HotelMapScene');
   await game.enter('rooms');
-  await game.expectScreen('RoomScene', 'a fourth tab').toContain('Rum 4');
+  await game.expectScreen('RoomScene', 'a fourth tab').toContain('Værelse 4');
   await game.leave();
   await game.enter('lobby');
   await game.expectScreen('LobbyScene', 'a fourth key on the board').toContain('4');
@@ -310,7 +302,7 @@ test('a bought theme becomes selectable in the rooms', async ({ page }) => {
 
   // no picker while there is nothing to pick
   await game.enter('rooms');
-  await game.expectScreen('RoomScene').toContain('Rum 1 · Solskin');
+  await game.expectScreen('RoomScene').toContain('Værelse 1 · Solskin');
   await game.leave();
 
   await game.tap(AT.shop.x, AT.shop.y);
@@ -333,7 +325,7 @@ test('a bought theme becomes selectable in the rooms', async ({ page }) => {
   const swatch = swatchAt(3, 4);
   await game.tap(swatch.x, swatch.y);
   await game.expectSave(s => s.rooms[0].theme, 'the room keeps its new look').toBe(3);
-  await game.expectScreen('RoomScene').toContain('Rum 1 · Ørkenen');
+  await game.expectScreen('RoomScene').toContain('Værelse 1 · Ørkenen');
 
   // and only that room changed
   expect((await game.save()).rooms[1].theme).toBe(1);
@@ -380,7 +372,8 @@ test('room upgrades stack, so the cheaper one is never wasted', async ({ page })
   await game.tap(AT.back.x, AT.back.y);
   await game.waitForScene('HotelMapScene');
   await game.enter('rooms');
-  await game.expectScreen('RoomScene', 'six tabs').toContain('Rum 6');
+  // six rooms no longer fit as words, so the tabs shrink to a bed and a number
+  await game.expectScreen('RoomScene', 'six tabs').toContain('6');
   await game.leave();
   await game.enter('lobby');
   await game.expectScreen('LobbyScene', 'six keys on the board').toContain('6');
@@ -425,7 +418,7 @@ test('every shop entry can be bought and shows as bought', async ({ page }) => {
   // and nothing throws while every scene renders its full set of decorations
   await game.tap(AT.back.x, AT.back.y);
   await game.waitForScene('HotelMapScene');
-  for (const area of ['lobby', 'rooms', 'kitchen', 'pool', 'garden'] as const) {
+  for (const area of ['lobby', 'rooms', 'kitchen', 'pool', 'garden', 'boutique'] as const) {
     await game.enter(area);
     await game.leave();
   }

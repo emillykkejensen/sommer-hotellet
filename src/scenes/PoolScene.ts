@@ -1,15 +1,23 @@
 import Phaser from 'phaser';
-import { COLORS, LINE, SIZE, text } from '../config';
-import { GuestData, gameState, LOUNGER_COUNT } from '../state/GameState';
-import { showHearts, showSparkle, showSplash, showStarBurst, showToast } from '../objects/FeedbackEffects';
-import { drawPatienceBar, drawSpeechBubble, guestLine, sayOnce } from '../objects/Guests';
-import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
-import { rewardFor } from '../helpers/Reward';
+import { COLORS, DEPTH, LINE, SIZE, text } from '../config';
+import { Destination, GuestData, gameState, LOUNGER_COUNT, MAX_ICES } from '../state/GameState';
+import { isIce } from '../state/Extras';
+import {
+  showCheckmark, showSparkle, showSplash, showStarBurst, showToast,
+} from '../objects/FeedbackEffects';
+import { CardAction } from '../objects/Guests';
+import { paintIce } from '../objects/Icons';
+import { addBackButton, addSceneTitle, addStarCounter } from '../ui/Chrome';
 import { placeDecorations } from './ShopScene';
-import { addBirds, caption, drawHead, drawPerson, drawSun, gradientBand, shadow, tappable } from '../helpers/Draw';
+import {
+  addBirds, caption, drawHead, drawPerson, drawSun, gradientBand, plate, shade, shadow, tappable,
+} from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
-import { dur, reduceMotion } from '../helpers/Motion';
+import { dur, reduceMotion, transition } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
+
+/** Where the ice cream stand stands. */
+const STAND = { x: 112, yFrac: 0.875 };
 
 export class PoolScene extends BaseScene {
   private sliding = false;
@@ -20,12 +28,12 @@ export class PoolScene extends BaseScene {
 
   private loungerSpot(index: number): { x: number; y: number } {
     const { width, height } = this.scale;
-    // Two down each side, the right-hand pair pushed lower so their captions clear the
-    // water slide's.
+    // Two down each side: the right-hand pair pushed lower so their captions clear the
+    // water slide's, the left-hand pair higher so the ice cream stand fits underneath.
     const left = index < 2;
     return {
       x: left ? 88 : width - 88,
-      y: height * (left ? (index === 0 ? 0.44 : 0.72) : (index === 2 ? 0.58 : 0.86)),
+      y: height * (left ? (index === 0 ? 0.4 : 0.62) : (index === 2 ? 0.58 : 0.86)),
     };
   }
 
@@ -64,7 +72,11 @@ export class PoolScene extends BaseScene {
   protected buildChrome(): void {
     addBackButton(this);
     addStarCounter(this);
-    addSceneTitle(this, 'Swimmingpoolen', COLORS.water);
+    addSceneTitle(this, 'Poolen', COLORS.water);
+  }
+
+  protected serves(): Destination {
+    return 'pool';
   }
 
   protected buildDynamic(): void {
@@ -73,26 +85,30 @@ export class PoolScene extends BaseScene {
     placeDecorations(this, 'pool', this.dynamic);
     this.buildLoungers();
     this.buildSlide(width - 180, height * 0.28);
-    this.buildDrinkBar(170, height * 0.93);
+    this.buildIceStand(STAND.x, height * STAND.yFrac);
     this.buildSwimmers();
-    this.buildWaitingGuests();
+    this.buildPoolside();
 
     const laid = gameState.pool.towels.filter(Boolean).length;
-    const waiting = gameState.guestsAt('pool').filter(g => g.settledAt === null).length;
+    const here = gameState.guestsAt('pool');
+    const waiting = here.filter(g => gameState.guestPhase(g) === 'waiting' || gameState.guestPhase(g) === 'impatient');
+    const ready = here.filter(g => gameState.guestPhase(g) === 'ready');
 
     let message: string;
-    if (waiting > 0) {
-      message = laid === LOUNGER_COUNT
-        ? 'Alle solstole er taget — en gæst må vente'
-        : 'En gæst venter — læg et håndklæde på en solstol';
+    if (waiting.some(g => g.lounger === null) && gameState.freeLounger() === null) {
+      message = 'En gæst mangler en solstol — læg et håndklæde på';
+    } else if (waiting.length > 0) {
+      message = 'En gæst venter — tryk på dem';
+    } else if (ready.length > 0) {
+      message = 'Tryk på gæsten, og vis dem vej';
     } else if (laid === LOUNGER_COUNT) {
       message = 'Alle solstole er klar';
     } else {
       message = `Læg håndklæder på solstolene — ${laid} af ${LOUNGER_COUNT}`;
     }
 
-    this.dyn(caption(this, width / 2, height - 18, message,
-      waiting === 0 && laid === LOUNGER_COUNT ? 'done' : 'idle'));
+    this.dyn(caption(this, width / 2 + 60, height - 18, message,
+      waiting.length === 0 && ready.length === 0 && laid === LOUNGER_COUNT ? 'done' : 'idle'));
   }
 
   private drawPoolBasin(cx: number, cy: number): Phaser.GameObjects.Container {
@@ -210,8 +226,8 @@ export class PoolScene extends BaseScene {
 
       if (hasTowel) {
         const towel = this.add.graphics();
-        const shade = i % 2 === 0 ? COLORS.pink : COLORS.waterLight;
-        towel.fillStyle(shade);
+        const tint = i % 2 === 0 ? COLORS.pink : COLORS.waterLight;
+        towel.fillStyle(tint);
         towel.fillRoundedRect(-29, -7, 58, 19, 4);
         towel.fillStyle(COLORS.white, 0.55);
         towel.fillRect(-29, -2, 58, 4);
@@ -243,40 +259,19 @@ export class PoolScene extends BaseScene {
   /**
    * Laying a towel.
    *
-   * If somebody is standing there waiting for a lounger, this is the job "make the pool
-   * ready for a guest" and it raises the task — unless they have already been waiting past
-   * their patience, in which case it still gets done and simply does not pay.
+   * Getting a lounger ready is preparation, and it pays nothing on its own: the star comes
+   * when a guest has had their swim. A guest waiting for a lounger is shown to it from
+   * their card, which updates the moment this towel goes down.
    */
   private layTowel(index: number, spot: { x: number; y: number }): void {
     if (!gameState.layTowel(index)) return;
     const { width, height } = this.scale;
     audio.pop();
-    showStarBurst(this, spot.x, spot.y - 8);
+    showCheckmark(this, spot.x, spot.y - 30);
 
-    const seated = gameState.seatPoolGuests();
-    const served = seated[0];
-
-    if (served) {
-      showHearts(this, spot.x, spot.y - 30);
-      if (served.late) {
-        showToast(this, width / 2, height * 0.24,
-          `${served.guest.name} ventede for længe — ingen stjerne`, '#B9584A');
-        this.time.delayedCall(dur(300), () => this.refresh());
-        return;
-      }
-      rewardFor(this, 'pool', { after: () => this.refresh() });
-      return;
-    }
-
-    // Nobody waiting: this is getting ahead of the guests rather than serving one, so it
-    // pays a plain star and never asks a question.
-    const allDone = gameState.pool.towels.every(Boolean);
-    if (allDone) {
+    if (gameState.pool.towels.every(Boolean)) {
       showSparkle(this, width / 2, height * 0.53, 300, 140);
       showToast(this, width / 2, height * 0.26, 'Alle solstole er klar', '#4A7F33');
-      award(this, 2);
-    } else {
-      award(this, 1);
     }
     this.refresh();
   }
@@ -338,7 +333,6 @@ export class PoolScene extends BaseScene {
           showSplash(this, x - 100, y + 52);
           showStarBurst(this, x - 100, y + 30, 4);
           showToast(this, x - 110, y - 10, 'Juhuu!', '#B9584A');
-          award(this);
           this.tweens.add({
             targets: rider,
             alpha: 0,
@@ -354,58 +348,81 @@ export class PoolScene extends BaseScene {
     });
   }
 
-  private buildDrinkBar(x: number, y: number): void {
+  /**
+   * The ice cream stand.
+   *
+   * It replaced the drinks bar, which was four glasses that did nothing. Tapping it opens
+   * the stand, where ices are made; the ones already made wait on its counter until a guest
+   * is handed one from their card.
+   */
+  private buildIceStand(x: number, y: number): void {
     const c = this.add.container(x, y);
     const g = this.add.graphics();
 
-    shadow(g, -68, -14, 136, 34, 8, 3, 0.16);
+    // poles and a striped awning, with the sign painted on it
     g.fillStyle(COLORS.woodDeep);
-    g.fillRoundedRect(-68, -14, 136, 34, 8);
-    g.fillStyle(COLORS.woodLight);
-    g.fillRoundedRect(-72, -20, 144, 12, 6);
+    g.fillRoundedRect(-62, -60, 6, 46, 3);
+    g.fillRoundedRect(56, -60, 6, 46, 3);
+    const stripes = 8;
+    const aw = 140;
+    for (let i = 0; i < stripes; i++) {
+      g.fillStyle(i % 2 === 0 ? COLORS.pink : COLORS.white);
+      g.fillRect(-aw / 2 + i * (aw / stripes), -76, aw / stripes, 18);
+    }
+    for (let i = 0; i < stripes; i++) {
+      g.fillStyle(i % 2 === 0 ? COLORS.pink : COLORS.white);
+      g.fillCircle(-aw / 2 + (i + 0.5) * (aw / stripes), -58, aw / stripes / 2);
+    }
+    g.lineStyle(LINE.base, COLORS.outline, 0.85);
+    g.strokeRect(-aw / 2, -76, aw, 18);
+    plate(g, -22, -86, 44, 22, 10, COLORS.cream, 1, LINE.thin);
+
+    // counter
+    shadow(g, -68, -14, 136, 36, 8, 3, 0.16);
+    plate(g, -68, -14, 136, 36, 8, COLORS.water, 1, LINE.base);
+    g.fillStyle(shade(COLORS.water, -0.2));
+    g.fillRect(-68, 4, 136, 4);
+    plate(g, -74, -20, 148, 11, 5, COLORS.woodLight, 1, LINE.thin);
     c.add(g);
+    c.add(this.add.text(0, -75, 'Is', text(SIZE.label, '#B55345', 'bold')).setOrigin(0.5));
 
-    const drinks = [
-      { color: COLORS.orange, x: -45 },
-      { color: COLORS.pink, x: -15 },
-      { color: COLORS.green, x: 15 },
-      { color: COLORS.purple, x: 45 },
-    ];
-
-    drinks.forEach(d => {
-      const glass = this.add.graphics();
-      glass.fillStyle(COLORS.white, 0.7);
-      glass.fillRoundedRect(-11, -18, 22, 35, { tl: 3, tr: 3, bl: 10, br: 10 });
-      glass.fillStyle(d.color, 0.92);
-      glass.fillRoundedRect(-9, -5, 18, 20, { tl: 0, tr: 0, bl: 8, br: 8 });
-      glass.fillStyle(COLORS.white, 0.6);
-      glass.fillRoundedRect(-9, -16, 6, 27, 3);
-      // straw
-      glass.fillStyle(COLORS.red);
-      glass.fillRoundedRect(2, -28, 3.5, 14, 1.75);
-
-      const holder = this.add.container(d.x, -42, [glass]);
-      holder.setSize(32, 48);
-      holder.setInteractive({ useHandCursor: true });
-      holder.on('pointerdown', () => {
-        showHearts(this, x + d.x, y - 58);
-        this.tweens.add({ targets: holder, scale: 1.3, duration: 140, yoyo: true });
-      });
-      c.add(holder);
+    // made ices, on the counter
+    gameState.pool.ices.slice(0, MAX_ICES).forEach((key, i) => {
+      const ice = this.add.graphics().setPosition((i - (MAX_ICES - 1) / 2) * 38, -34);
+      paintIce(ice, 1.05, key);
+      c.add(ice);
     });
 
-    // No caption: four coloured glasses on a bar need no label, and one here would sit on
-    // top of the nearest lounger's.
+    const wanted = gameState.wantedIces().length;
+    c.add(caption(this, 0, 38, wanted > 0 ? 'Lav en is' : 'Isboden', wanted > 0 ? 'idle' : 'done'));
     this.dyn(c);
+
+    tappable(this, c, 150, 110, () => transition(this, 'IceCreamScene'), 'tap');
   }
 
-  /** Guests who got a lounger, floating about in the water. */
+  /** The ice leaves the counter and flies to the guest's hand. */
+  protected animateDelivery(_guest: GuestData, action: CardAction, spot: { x: number; y: number }): void {
+    if (action.kind !== 'extra' || !action.arg || !isIce(action.arg) || reduceMotion()) return;
+    const ice = this.add.graphics()
+      .setPosition(STAND.x, this.scale.height * STAND.yFrac - 34)
+      .setDepth(DEPTH.effects);
+    paintIce(ice, 1.2, action.arg);
+    this.tweens.add({
+      targets: ice,
+      x: spot.x,
+      y: spot.y - 10,
+      duration: dur(480),
+      ease: 'Cubic.easeInOut',
+      onComplete: () => ice.destroy(),
+    });
+  }
+
+  /** Guests who have everything they wanted, floating about in the water. */
   private buildSwimmers(): void {
     const { width, height } = this.scale;
-    const swimming = gameState.guestsAt('pool').filter(g => g.settledAt !== null);
+    const swimming = gameState.guestsAt('pool').filter(g => gameState.guestPhase(g) === 'happy');
 
-    // Spread along the pool and staggered front to back, so that four speech bubbles can
-    // all be read at once rather than stacking into one white block.
+    // Spread along the pool and staggered front to back.
     const cx = width / 2;
     const cy = height * 0.53;
     const spots = [0, 1, 2, 3].map(i => ({
@@ -429,44 +446,41 @@ export class PoolScene extends BaseScene {
       ring.fillCircle(0, 6, 10);
       c.add(ring);
       c.add(drawHead(this, 0, -4, guest.color, 0.9));
-      this.dyn(c);
+      this.addGuest(guest, c, { w: 56, h: 60, thoughtY: -26 });
 
-      const line = guestLine(guest);
-      sayOnce(guest, line);
-      this.dyn(drawSpeechBubble(this, spot.x, spot.y - 32, line.text, line.tone, 116));
-
-      this.tweens.add({
-        targets: c,
-        y: spot.y - 4,
-        duration: 1500 + i * 260,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.easeInOut',
-      });
+      if (!reduceMotion()) {
+        this.tweens.add({
+          targets: c,
+          y: spot.y - 4,
+          duration: 1500 + i * 260,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+        });
+      }
     });
   }
 
-  /** Guests standing at the poolside with nowhere to lie down. */
-  private buildWaitingGuests(): void {
-    const { width, height } = this.scale;
-    const waiting = gameState.guestsAt('pool').filter(g => g.settledAt === null);
+  /**
+   * Guests out of the water: waiting for a lounger or an ice cream, or finished and wanting
+   * to be shown where to go next. They stand in a row along the near side of the pool,
+   * clear of the ice cream stand.
+   */
+  private buildPoolside(): void {
+    const { height } = this.scale;
+    const standing = gameState.guestsAt('pool').filter(g => gameState.guestPhase(g) !== 'happy');
+    const left = 330;
+    const right = 690;
+    const step = standing.length > 1 ? Math.min(112, (right - left) / (standing.length - 1)) : 0;
 
-    waiting.forEach((guest: GuestData, i) => {
-      const x = width / 2 - (waiting.length - 1) * 58 + i * 116;
-      const y = height * 0.78;
+    standing.forEach((guest: GuestData, i) => {
+      const x = standing.length === 1 ? (left + right) / 2 : left + i * step;
+      const y = height * 0.79;
 
       const c = this.add.container(x, y);
       c.add(drawPerson(this, 0, 0, guest.color, 1.05));
       c.add(this.add.text(0, 50, guest.name, text(SIZE.tiny, '#5A4E42', 'bold')).setOrigin(0.5));
-      this.dyn(c);
-
-      const line = guestLine(guest);
-      sayOnce(guest, line);
-      this.dyn(drawSpeechBubble(this, x, y - 54, line.text, line.tone, 150));
-
-      const bar = drawPatienceBar(this, x, y + 66, guest);
-      this.dyn(bar.object);
-      this.everyFrame(bar.update);
+      this.addGuest(guest, c, { w: 70, h: 96, thoughtY: -44, barY: 66 });
     });
   }
 }

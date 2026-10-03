@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { COLORS } from '../config';
-import { shadow } from '../helpers/Draw';
+import { plate, shadow } from '../helpers/Draw';
+import { LINE } from '../config';
+import { paintGarment } from '../objects/Icons';
 
 export type Area = 'lobby' | 'rooms' | 'kitchen' | 'pool' | 'garden';
 
@@ -561,7 +563,41 @@ function secondFloorPreview(scene: Phaser.Scene): Phaser.GameObjects.Container {
   return c;
 }
 
+/** A little shop front with a striped awning and a hat in the window. */
+function boutiquePreview(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const c = scene.add.container(0, 0);
+  const g = scene.add.graphics();
+
+  shadow(g, -46, -24, 92, 56, 8, 4, 0.16);
+  plate(g, -46, -24, 92, 56, 8, COLORS.wall, 1, LINE.base);
+  for (let i = 0; i < 6; i++) {
+    g.fillStyle(i % 2 === 0 ? COLORS.purple : COLORS.white);
+    g.fillRect(-50 + i * (100 / 6), -38, 100 / 6, 15);
+  }
+  g.lineStyle(LINE.thin, COLORS.outline, 0.85);
+  g.strokeRect(-50, -38, 100, 15);
+  // window and door
+  plate(g, -38, -14, 44, 30, 5, COLORS.window, 1, LINE.thin);
+  g.fillStyle(COLORS.door);
+  g.fillRoundedRect(14, -12, 22, 44, { tl: 10, tr: 10, bl: 0, br: 0 });
+  g.lineStyle(LINE.thin, COLORS.outline, 1);
+  g.strokeRoundedRect(14, -12, 22, 44, { tl: 10, tr: 10, bl: 0, br: 0 });
+  c.add(g);
+
+  const hat = scene.add.graphics().setPosition(-16, 2);
+  paintGarment(hat, 1.2, 'toej:solhat:roed');
+  c.add(hat);
+  return c;
+}
+
 export const SHOP_UPGRADES: ShopUpgrade[] = [
+  {
+    id: 'boutique',
+    name: 'Tøjbutik',
+    blurb: 'Tøj til gæsterne',
+    cost: 16,
+    draw: boutiquePreview,
+  },
   {
     id: 'theme-desert',
     name: 'Ørken-tema',

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { AT, Game } from './game';
+import { Game } from './game';
 
 /**
  * The task factories are plain data generators, so the Vite dev server can hand them to
@@ -136,7 +136,8 @@ test('every skill is reachable in at least one scene', async ({ page }) => {
     const content: any = await import(/* @vite-ignore */ contentUrl);
     const types: any = await import(/* @vite-ignore */ typesUrl);
 
-    const areas = ['lobby', 'rooms', 'kitchen', 'pool', 'garden'];
+    // The garden asks nothing any more — nobody stays there — so it does not count.
+    const areas = ['lobby', 'rooms', 'kitchen', 'pool'];
     const missing: string[] = [];
 
     for (const skill of types.ALL_SKILLS) {
@@ -161,35 +162,23 @@ test('every skill is reachable in at least one scene', async ({ page }) => {
 });
 
 test('the new templates can each be solved in the game', async ({ page }) => {
-  // Force one skill at a time so a known template comes up. Each case has to be set up on a
-  // *job*, not a tap: a lone towel or one scoop of sand no longer asks anything. The garden
-  // cases finish the sandcastle; the pool cases seat a guest who is waiting for a lounger.
+  // Force one skill at a time so a known template comes up. Each case is set up on
+  // something done for a guest: a guest who has slept, or swum, and is led on.
   const cases = [
-    {
-      skill: 'figurer', area: 'garden' as const, tap: AT.garden.sandbox, template: 'pick-image',
-      seed: {
-        garden: { flowers: [false, false, false, false, false], sandcastle: 2, apples: Array(5).fill(false) },
-      },
-    },
-    {
-      skill: 'sortering', area: 'pool' as const, tap: AT.pool.lounger1, template: 'put-in-order',
-      seed: Game.guestWaitingAt('pool'),
-    },
-    {
-      skill: 'tallinje', area: 'pool' as const, tap: AT.pool.lounger1, template: 'adjust',
-      seed: Game.guestWaitingAt('pool'),
-    },
+    { skill: 'figurer', area: 'rooms' as const, at: 'room' as const, template: 'pick-image' },
+    { skill: 'sortering', area: 'pool' as const, at: 'pool' as const, template: 'put-in-order' },
+    { skill: 'tallinje', area: 'pool' as const, at: 'pool' as const, template: 'adjust' },
   ];
 
   for (const c of cases) {
     const game = await Game.openWithSave(page, {
-      ...c.seed,
+      ...Game.guestDoneAt(c.at),
       settings: { mode: 'laer', matematik: true, dansk: true, voices: false, sound: false },
       skills: Game.focusSkill(c.skill),
     });
     await game.start();
     await game.enter(c.area);
-    await game.tap(c.tap.x, c.tap.y);
+    await game.helpGuest(0, 'Følg med mig');
 
     expect(await game.waitForTask(), `${c.skill} should raise a task`).toBe(true);
     const solved = await game.solveTask();
@@ -201,14 +190,15 @@ test('the new templates can each be solved in the game', async ({ page }) => {
 
 test('reading tasks show pictures, not the same word twice', async ({ page }) => {
   const game = await Game.openWithSave(page, {
+    ...Game.seatedGuests(1),
     settings: { mode: 'laer', matematik: false, dansk: true, voices: false, sound: false, music: false },
     skills: Game.focusSkill('ordlæsning'),
   });
   await game.start();
   await game.enter('kitchen');
 
-  // cooking a whole dish is the kitchen's job, and the only thing there that asks
-  await game.cookDish();
+  // a finished order is the restaurant's job, and the only thing there that asks
+  await game.helpGuest(0, 'Server suppe');
 
   expect(await game.waitForTask(), 'a reading task should appear').toBe(true);
   const solved = await game.solveTask();

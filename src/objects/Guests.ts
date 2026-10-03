@@ -1,9 +1,14 @@
 import Phaser from 'phaser';
-import { COLORS, DEPTH, INK, SIZE, text } from '../config';
-import { GuestData, Place, gameState } from '../state/GameState';
+import { COLORS, DEPTH, INK, LINE, SIZE, text } from '../config';
+import { Destination, GuestData, gameState } from '../state/GameState';
+import { extraPhrase, giveLabel, isIce } from '../state/Extras';
 import { recipeColor } from '../state/Menu';
 import { audio } from '../helpers/Audio';
-import { shadow } from '../helpers/Draw';
+import { plate, shadow } from '../helpers/Draw';
+import {
+  destinationIcon, paintArrow, paintBed, paintBoutique, paintExtra, paintIce, paintKey,
+  paintLounger, paintPlate, paintSuitcase,
+} from './Icons';
 import { reduceMotion } from '../helpers/Motion';
 
 /**
@@ -16,13 +21,23 @@ import { reduceMotion } from '../helpers/Motion';
 
 export type Tone = 'idle' | 'grumpy' | 'happy';
 
-/** Danish for where a guest is off to next. */
-export function placeName(place: Place | 'checkout'): string {
+/** Danish for a place, for a hint: "Gå til poolen". */
+export function placeName(place: Destination): string {
   switch (place) {
     case 'pool': return 'poolen';
     case 'restaurant': return 'restauranten';
     case 'room': return 'værelset';
-    case 'checkout': return 'receptionen';
+    case 'checkout': return 'lobbyen';
+  }
+}
+
+/** Where a guest says they want to go: "Nu vil jeg gerne i poolen." */
+function goingTo(place: Destination): string {
+  switch (place) {
+    case 'pool': return 'i poolen';
+    case 'restaurant': return 'i restauranten';
+    case 'room': return 'op på mit værelse';
+    case 'checkout': return 'i lobbyen og tjekke ud';
   }
 }
 
@@ -34,8 +49,11 @@ export function placeName(place: Place | 'checkout'): string {
  * caller says whether the list starts a sentence.
  */
 export function listDishes(dishes: string[], startsSentence = false): string {
-  if (dishes.length === 0) return '';
-  const words = dishes.map(d => d.toLowerCase());
+  return listWords(dishes.map(d => d.toLowerCase()), startsSentence);
+}
+
+function listWords(words: string[], startsSentence = false): string {
+  if (words.length === 0) return '';
   const joined = words.length === 1
     ? words[0]
     : `${words.slice(0, -1).join(', ')} og ${words[words.length - 1]}`;
@@ -57,38 +75,71 @@ export interface GuestLine {
   tone: Tone;
 }
 
+/** What a guest at the pool still wants, in words: "en solstol og en citronis i bæger med drys". */
+function poolWants(guest: GuestData): string {
+  const items: string[] = [];
+  if (guest.lounger === null) items.push('en solstol');
+  for (const key of gameState.outstandingExtras(guest)) items.push(extraPhrase(key));
+  return listWords(items);
+}
+
 /**
- * What a guest is saying right now.
+ * What a guest says when the player taps them.
  *
- * A happy guest names where they are going next, which is the only way the player can plan
- * — otherwise finding the guest who needs something means walking the whole hotel.
+ * The line is only shown once they are tapped — on screen a guest carries a picture of what
+ * they want, which is what a child who cannot read yet actually uses. The words are for the
+ * grown-up reading along, and for the child who can.
  */
 export function guestLine(guest: GuestData, now = Date.now()): GuestLine {
   const phase = gameState.guestPhase(guest, now);
   const next = gameState.nextPlaceOf(guest);
-  const heading = next ? ` Så skal jeg i ${placeName(next)}.` : '';
+
+  if (guest.at === 'following') {
+    return { text: `Jeg skal ${goingTo(guest.heading ?? 'checkout')}. Vis mig vejen!`, tone: 'happy' };
+  }
 
   if (!guest.checkedIn) {
     return phase === 'impatient'
-      ? { text: 'Hallo? Er der nogen i receptionen?', tone: 'grumpy' }
-      : { text: `Har I et værelse?${heading}`, tone: 'idle' };
+      ? { text: 'Hallo? Er der ikke nogen, der kan hjælpe mig?', tone: 'grumpy' }
+      : { text: 'Hej! Har I et ledigt værelse til mig?', tone: 'idle' };
   }
 
   if (guest.at === 'checkout') {
     return phase === 'impatient'
       ? { text: 'Vi vil gerne betale og komme hjem!', tone: 'grumpy' }
-      : { text: 'Vi skal hjem nu — tak for besøget!', tone: 'idle' };
+      : { text: 'Vi vil gerne tjekke ud. Tak for besøget!', tone: 'idle' };
+  }
+
+  if (phase === 'ready') {
+    const onward = next ? `Nu vil jeg gerne ${goingTo(next)}.` : '';
+    if (guest.at === 'lobby') return { text: `Tak for nøglen! ${onward}`, tone: 'happy' };
+    if (guest.settledAt === null) {
+      // they gave up on this stop
+      const reason = guest.at === 'room'
+        ? 'Jeg kan ikke sove i det rod.'
+        : 'Jeg gider ikke vente mere.';
+      return { text: `${reason} ${next ? `Jeg vil hellere ${goingTo(next)}.` : ''}`, tone: 'grumpy' };
+    }
+    const thanks = guest.at === 'pool' ? 'Det var dejligt at bade!'
+      : guest.at === 'restaurant' ? 'Tak for mad!'
+      : 'Godmorgen! Jeg har sovet godt.';
+    return { text: `${thanks} ${onward}`, tone: 'happy' };
   }
 
   switch (guest.at) {
-    case 'pool':
-      if (phase === 'happy') return { text: `Åh, hvor er vandet dejligt!${heading}`, tone: 'happy' };
-      return phase === 'impatient'
-        ? { text: 'Er der slet ingen solstole med håndklæde?', tone: 'grumpy' }
-        : { text: 'Jeg vil bade! Er der en solstol klar?', tone: 'idle' };
+    case 'pool': {
+      if (phase === 'happy') return { text: 'Åh, hvor er vandet dejligt!', tone: 'happy' };
+      const wants = poolWants(guest);
+      if (phase === 'impatient') return { text: `Jeg har ventet længe! Jeg mangler ${wants}.`, tone: 'grumpy' };
+      if (guest.lounger !== null) return { text: `Tak for solstolen! Nu mangler jeg bare ${wants}.`, tone: 'idle' };
+      const extras = gameState.outstandingExtras(guest).map(extraPhrase);
+      return extras.length === 0
+        ? { text: 'Jeg vil bade! Er der en solstol klar?', tone: 'idle' }
+        : { text: `Jeg vil bade! Må jeg få en solstol og ${listWords(extras)}?`, tone: 'idle' };
+    }
 
     case 'restaurant': {
-      if (phase === 'happy') return { text: `Mmm, tak for mad!${heading}`, tone: 'happy' };
+      if (phase === 'happy') return { text: 'Mmm, hvor smager det godt!', tone: 'happy' };
       const left = gameState.outstandingOrder(guest);
       return phase === 'impatient'
         ? { text: `Kommer der snart ${listDishes(left)}?`, tone: 'grumpy' }
@@ -96,7 +147,7 @@ export function guestLine(guest: GuestData, now = Date.now()): GuestLine {
     }
 
     case 'room':
-      if (phase === 'happy') return { text: `Zzz... godnat.${heading}`, tone: 'happy' };
+      if (phase === 'happy') return { text: 'Zzz... godnat.', tone: 'happy' };
       return phase === 'impatient'
         ? { text: 'Her er rod! Jeg kan ikke sove.', tone: 'grumpy' }
         : { text: 'Jeg er træt. Er værelset gjort klar?', tone: 'idle' };
@@ -104,6 +155,245 @@ export function guestLine(guest: GuestData, now = Date.now()): GuestLine {
     default:
       return { text: '...', tone: 'idle' };
   }
+}
+
+/* ---------------------------------------------------------- thought bubbles --- */
+
+/** One picture in a thought bubble. */
+export type ThoughtIcon = (g: Phaser.GameObjects.Graphics, s: number) => void;
+
+export interface Thought {
+  icons: ThoughtIcon[];
+  /** `want` waits for a job, `ready` wants to be led somewhere, `grumpy` has waited too long. */
+  tone: 'want' | 'ready' | 'grumpy';
+}
+
+/**
+ * The picture over a guest's head: what they want, before anybody has asked them.
+ *
+ * Null while they are happily getting on with it — a bubble over everybody would make the
+ * ones that need you impossible to spot.
+ */
+export function guestThought(guest: GuestData, now = Date.now()): Thought | null {
+  const phase = gameState.guestPhase(guest, now);
+  if (phase === 'happy' || guest.at === 'following') return null;
+
+  if (phase === 'ready') {
+    const next = gameState.nextPlaceOf(guest);
+    if (!next) return null;
+    const place = destinationIcon(next);
+    return {
+      icons: [(g, s) => place(g, s), (g, s) => paintArrow(g, s * 0.8)],
+      tone: guest.settledAt === null ? 'grumpy' : 'ready',
+    };
+  }
+
+  const tone = phase === 'impatient' ? 'grumpy' : 'want';
+  if (!guest.checkedIn) return { icons: [(g, s) => paintKey(g, s)], tone };
+  if (guest.at === 'checkout') return { icons: [(g, s) => paintSuitcase(g, s)], tone };
+
+  const icons: ThoughtIcon[] = [];
+  switch (guest.at) {
+    case 'pool':
+      if (guest.lounger === null) icons.push((g, s) => paintLounger(g, s));
+      for (const key of gameState.outstandingExtras(guest)) {
+        icons.push(isIce(key) ? (g, s) => paintIce(g, s) : (g, s) => paintBoutique(g, s));
+      }
+      break;
+    case 'restaurant':
+      icons.push((g, s) => paintPlate(g, s));
+      break;
+    case 'room':
+      icons.push((g, s) => paintBed(g, s));
+      break;
+  }
+  return icons.length > 0 ? { icons, tone } : null;
+}
+
+const THOUGHT_FILL: Record<Thought['tone'], number> = {
+  want: COLORS.white,
+  ready: 0xE6F4DE,
+  grumpy: 0xFBE2DC,
+};
+
+/**
+ * A thought bubble, its tail of little circles pointing down at the guest at (x, y).
+ *
+ * Deliberately a different shape from the speech bubble it replaced: this is the guest
+ * *wanting* something, not saying it. Tapping the guest is what gets the words.
+ */
+export function drawThought(
+  scene: Phaser.Scene,
+  x: number, y: number,
+  thought: Thought,
+  scale = 1
+): Phaser.GameObjects.Container {
+  const s = scale;
+  const n = thought.icons.length;
+  const cell = 34 * s;
+  const w = Math.max(46 * s, n * cell + 14 * s);
+  const h = 42 * s;
+
+  const g = scene.add.graphics();
+  shadow(g, -w / 2, -h / 2, w, h, h / 2, 3, 0.16);
+  plate(g, -w / 2, -h / 2, w, h, h / 2, THOUGHT_FILL[thought.tone], 1, LINE.thin);
+  // the tail: two shrinking circles down towards the head
+  for (const [dx, dy, r] of [[-6, h / 2 + 7 * s, 5 * s], [-11, h / 2 + 16 * s, 3 * s]] as const) {
+    g.fillStyle(THOUGHT_FILL[thought.tone]);
+    g.fillCircle(dx * s, dy, r);
+    g.lineStyle(LINE.hair, COLORS.outline, 0.9);
+    g.strokeCircle(dx * s, dy, r);
+  }
+
+  const c = scene.add.container(x, y - h / 2 - 20 * s, [g]);
+  c.setData({ w, h });
+  thought.icons.forEach((paint, i) => {
+    const icon = scene.add.graphics().setPosition((i - (n - 1) / 2) * cell, 0);
+    paint(icon, 0.95 * s);
+    c.add(icon);
+  });
+
+  if (!reduceMotion()) {
+    if (thought.tone === 'grumpy') {
+      scene.tweens.add({
+        targets: c, angle: { from: -3, to: 3 },
+        duration: 220, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      });
+    } else {
+      scene.tweens.add({
+        targets: c, y: c.y - 4, duration: 900 + (x % 300),
+        yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      });
+    }
+  }
+  return c;
+}
+
+/* ------------------------------------------------------------------ the card --- */
+
+export type ActionKind = 'checkin' | 'lead' | 'lounger' | 'bed' | 'serve' | 'extra' | 'checkout';
+
+export interface CardAction {
+  kind: ActionKind;
+  label: string;
+  /** The dish or item the action is about, when there is a choice. */
+  arg?: string;
+}
+
+/** One thing on a guest's list, and whether it has arrived. */
+export type CardWant =
+  | { kind: 'icon'; paint: ThoughtIcon; done: boolean }
+  | { kind: 'dish'; dish: string; done: boolean };
+
+export interface CardModel {
+  line: GuestLine;
+  wants: CardWant[];
+  actions: CardAction[];
+  /** What to do when there is nothing to press yet: "Lav maden i køkkenet". */
+  hint: string | null;
+}
+
+/**
+ * What the card shows for a guest: what they say, what they want, and what can be done
+ * for them right now.
+ *
+ * An action only appears when it would work. A child should never press "Server suppe" and
+ * be told there is no soup — the card says where the soup comes from instead.
+ */
+export function guestCard(guest: GuestData, now = Date.now()): CardModel {
+  const line = guestLine(guest, now);
+  const phase = gameState.guestPhase(guest, now);
+  const wants: CardWant[] = [];
+  const actions: CardAction[] = [];
+  let hint: string | null = null;
+
+  const next = gameState.nextPlaceOf(guest);
+
+  if (guest.at === 'following') {
+    if (next) wants.push({ kind: 'icon', paint: destinationIcon(next), done: false });
+    hint = next ? `Gå til ${placeName(next)} — så følger jeg med.` : null;
+    return { line, wants, actions, hint };
+  }
+
+  if (!guest.checkedIn) {
+    wants.push({ kind: 'icon', paint: paintKey, done: false });
+    const free = gameState.rooms.findIndex(r => r.guestId === null);
+    if (free === -1) hint = 'Alle værelser er optaget. En gæst skal tjekke ud først.';
+    else actions.push({ kind: 'checkin', label: `Giv nøgle til værelse ${free + 1}` });
+    return { line, wants, actions, hint };
+  }
+
+  if (guest.at === 'checkout') {
+    wants.push({ kind: 'icon', paint: paintSuitcase, done: false });
+    actions.push({ kind: 'checkout', label: 'Tjek ud' });
+    return { line, wants, actions, hint };
+  }
+
+  if (phase === 'ready') {
+    if (next) wants.push({ kind: 'icon', paint: destinationIcon(next), done: false });
+    actions.push({ kind: 'lead', label: 'Følg med mig' });
+    return { line, wants, actions, hint };
+  }
+
+  switch (guest.at) {
+    case 'pool': {
+      wants.push({ kind: 'icon', paint: paintLounger, done: guest.lounger !== null });
+      for (const key of guest.extras) {
+        wants.push({
+          kind: 'icon',
+          paint: (g, s) => paintExtra(g, s, key),
+          done: !gameState.outstandingExtras(guest).includes(key),
+        });
+      }
+      if (phase === 'happy') break;
+
+      const missing: string[] = [];
+      if (guest.lounger === null) {
+        if (gameState.freeLounger() !== null) actions.push({ kind: 'lounger', label: 'Giv solstol' });
+        else missing.push('Læg et håndklæde på en solstol');
+      }
+      for (const key of new Set(gameState.outstandingExtras(guest))) {
+        if (gameState.extraReady(key)) actions.push({ kind: 'extra', label: giveLabel(key), arg: key });
+        else missing.push(isIce(key) ? 'Lav isen i isboden' : 'Lav tøjet i tøjbutikken');
+      }
+      if (missing.length > 0) hint = `${missing.join('. ')}.`;
+      break;
+    }
+
+    case 'restaurant': {
+      const left = gameState.outstandingOrder(guest);
+      const served = [...guest.served];
+      for (const dish of guest.order) {
+        const at = served.indexOf(dish);
+        const done = at !== -1;
+        if (done) served.splice(at, 1);
+        wants.push({ kind: 'dish', dish, done });
+      }
+      if (phase === 'happy') break;
+
+      for (const dish of new Set(left)) {
+        if (gameState.kitchen.ready.includes(dish)) {
+          actions.push({ kind: 'serve', label: `Server ${dish.toLowerCase()}`, arg: dish });
+        }
+      }
+      const notReady = [...new Set(left)].filter(d => !gameState.kitchen.ready.includes(d));
+      if (notReady.length > 0) hint = `${listDishes(notReady, true)} skal laves i køkkenet.`;
+      break;
+    }
+
+    case 'room': {
+      wants.push({ kind: 'icon', paint: paintBed, done: guest.inBed });
+      if (phase === 'happy') break;
+      if (guest.roomNumber !== null && gameState.isRoomClean(guest.roomNumber)) {
+        actions.push({ kind: 'bed', label: 'Put i seng' });
+      } else {
+        hint = 'Gør værelset klar først.';
+      }
+      break;
+    }
+  }
+
+  return { line, wants, actions, hint };
 }
 
 const TONE_COLOR: Record<Tone, number> = {
@@ -232,7 +522,7 @@ export function drawPatienceBar(
     const phase = gameState.guestPhase(guest);
     g.clear();
 
-    if (phase === 'happy') return;
+    if (phase === 'happy' || phase === 'ready') return;
 
     g.fillStyle(COLORS.white, 0.85);
     g.fillRoundedRect(-w / 2, -h / 2, w, h, h / 2);

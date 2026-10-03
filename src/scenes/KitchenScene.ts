@@ -1,13 +1,12 @@
 import Phaser from 'phaser';
 import { COLORS, INK, INK_SOFT, SIZE, text } from '../config';
-import { MAX_READY_DISHES, TABLE_COUNT, gameState } from '../state/GameState';
-import { Ingredient, RECIPES, Recipe, recipeNamed } from '../state/Menu';
-import { showCheckmark, showHearts, showSparkle, showStarBurst, showToast } from '../objects/FeedbackEffects';
 import {
-  drawDish, drawOrderPips, drawPatienceBar, drawSpeechBubble, guestLine, listDishes, sayOnce,
-} from '../objects/Guests';
-import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
-import { rewardFor } from '../helpers/Reward';
+  Destination, GuestData, MAX_READY_DISHES, TABLE_COUNT, gameState,
+} from '../state/GameState';
+import { Ingredient, RECIPES, Recipe, recipeNamed } from '../state/Menu';
+import { showCheckmark, showSparkle, showToast } from '../objects/FeedbackEffects';
+import { CardAction, drawDish, drawOrderPips, listDishes } from '../objects/Guests';
+import { addBackButton, addSceneTitle, addStarCounter } from '../ui/Chrome';
 import { placeDecorations } from './ShopScene';
 import { caption, drawHead, shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
@@ -71,6 +70,15 @@ export class KitchenScene extends BaseScene {
     addStarCounter(this);
   }
 
+  /** Guests are led here to eat. Bringing one in opens the restaurant, so they can sit. */
+  protected serves(): Destination {
+    return 'restaurant';
+  }
+
+  protected onArrivals(_arrived: GuestData[]): void {
+    gameState.setShowingDining(true);
+  }
+
   protected buildDynamic(): void {
     const showingDining = gameState.kitchen.showingDining;
     // In the dynamic layer, not straight on the scene: the title changes with the toggle,
@@ -104,7 +112,7 @@ export class KitchenScene extends BaseScene {
 
     // A guest is sitting there waiting for food and the player is in the kitchen: say so
     // on the door rather than making them go and look.
-    const hungry = gameState.guestsAt('restaurant').filter(g2 => g2.settledAt === null).length;
+    const hungry = gameState.guestsAt('restaurant').filter(g2 => gameState.needsPlayer(g2)).length;
     if (!showingDining && hungry > 0) {
       const dot = this.add.circle(w / 2 - 10, -h / 2 + 8, 9, COLORS.red).setStrokeStyle(2, COLORS.white);
       c.add([dot, this.add.text(w / 2 - 10, -h / 2 + 8, `${hungry}`,
@@ -130,7 +138,8 @@ export class KitchenScene extends BaseScene {
     this.dyn(this.add.text(width / 2, 76, 'Vælg en ret og lav den',
       text(SIZE.body, INK_SOFT, 'semibold')).setOrigin(0.5));
 
-    RECIPES.forEach((r, i) => this.buildRecipeCard(r, 110 + i * 205, 132, r.name === recipe?.name));
+    // a row lower than the title, so a guest following you in has room under the back button
+    RECIPES.forEach((r, i) => this.buildRecipeCard(r, 110 + i * 205, 146, r.name === recipe?.name));
 
     placeDecorations(this, 'kitchen', this.dynamic);
     this.buildOrderBoard(104, height * 0.5);
@@ -493,7 +502,7 @@ export class KitchenScene extends BaseScene {
     g.fillStyle(COLORS.white, 0.24);
     g.fillRoundedRect(-w / 2 + 3, -h / 2 + 3, w - 6, h * 0.42, h / 2);
 
-    c.add([g, this.add.text(0, 0, full ? 'Passen er fuld' : `Kog ${recipe.name.toLowerCase()}`,
+    c.add([g, this.add.text(0, 0, full ? 'Ikke plads til mere mad' : `Kog ${recipe.name.toLowerCase()}`,
       text(SIZE.body, '#FFFFFF', 'bold')).setOrigin(0.5)]);
     this.dyn(c);
 
@@ -509,9 +518,10 @@ export class KitchenScene extends BaseScene {
       audio.sparkle();
       showCheckmark(this, width / 2, height * 0.44);
       showSparkle(this, width / 2, height * 0.48, 190, 130);
-      showToast(this, width / 2, height * 0.32, `${dish} er klar`, '#4A7F33');
+      showToast(this, width / 2, height * 0.32, `${dish} er klar til bordene`, '#4A7F33');
 
-      rewardFor(this, 'kitchen', { base: 2, after: () => this.refresh() });
+      // Cooking is how a guest gets fed, not the feeding: the star comes at the table.
+      this.refresh();
     });
   }
 
@@ -530,15 +540,18 @@ export class KitchenScene extends BaseScene {
     ];
 
     for (let i = 0; i < TABLE_COUNT; i++) {
-      this.buildTable(spots[i], i, seated[i] ?? null);
+      this.buildTable(spots[i], seated[i] ?? null);
     }
 
     this.buildServingCounter(width / 2, height - 68);
 
     const open = gameState.openOrders().length;
+    const ready = seated.filter(g => gameState.guestPhase(g) === 'ready').length;
     let hint: string;
     if (seated.length === 0) {
-      hint = 'Ingen gæster ved bordene endnu — hent nogen i lobbyen';
+      hint = 'Ingen gæster ved bordene endnu';
+    } else if (ready > 0 && open === 0) {
+      hint = 'Tryk på gæsten, og vis dem vej';
     } else if (open === 0) {
       hint = 'Alle har fået deres mad';
     } else if (gameState.wantedDishes().length > 0) {
@@ -552,8 +565,7 @@ export class KitchenScene extends BaseScene {
 
   private buildTable(
     spot: { x: number; y: number },
-    index: number,
-    guest: ReturnType<typeof gameState.guestsAt>[number] | null
+    guest: GuestData | null
   ): void {
     const c = this.add.container(spot.x, spot.y);
     const g = this.add.graphics();
@@ -590,47 +602,11 @@ export class KitchenScene extends BaseScene {
       c.add(plate);
     });
 
-    this.dyn(c);
+    this.addGuest(guest, c, { w: 96, h: 92, thoughtY: -50, barY: 44 });
+  }
 
-    const line = guestLine(guest);
-    sayOnce(guest, line);
-    this.dyn(drawSpeechBubble(this, spot.x, spot.y - 52 - (index % 2) * 8, line.text, line.tone, 140));
-
-    const bar = drawPatienceBar(this, spot.x, spot.y + 44, guest);
-    this.dyn(bar.object);
-    this.everyFrame(bar.update);
-
-    if (guest.settledAt !== null) return;
-
-    tappable(this, c, 96, 92, () => {
-      const result = gameState.serveTo(guest.id);
-
-      if (!result) {
-        const left = listDishes(gameState.outstandingOrder(guest), true);
-        showToast(this, spot.x, spot.y - 92, `${left} er ikke klar endnu`, '#B9584A');
-        return;
-      }
-
-      audio.serve();
-      this.flyDish(result.dish, spot);
-
-      this.time.delayedCall(dur(360), () => {
-        if (result.late) {
-          showToast(this, spot.x, spot.y - 92, 'De ventede for længe — ingen stjerne', '#B9584A');
-        } else if (result.complete) {
-          showStarBurst(this, spot.x, spot.y - 20, 6);
-          showHearts(this, spot.x, spot.y - 40);
-          showToast(this, spot.x, spot.y - 92, 'Tak for mad!', '#4A7F33');
-          // Serving is not a task — the kitchen already asked one for this dish. It is the
-          // payoff, so it pays outright, and more for finishing a whole order.
-          award(this, 2);
-        } else {
-          showStarBurst(this, spot.x, spot.y - 20, 4);
-          award(this, 1);
-        }
-        this.refresh();
-      });
-    });
+  protected animateDelivery(_guest: GuestData, action: CardAction, spot: { x: number; y: number }): void {
+    if (action.kind === 'serve' && action.arg) this.flyDish(action.arg, spot);
   }
 
   /** The plate travelling from the pass to the table. */

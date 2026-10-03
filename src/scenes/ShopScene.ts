@@ -89,7 +89,7 @@ export class ShopScene extends BaseScene {
     }
 
     const upgradeCols = Math.ceil(SHOP_UPGRADES.length / 2);
-    const cardW = 212;
+    const cardW = Math.min(212, Math.floor((width - 40) / upgradeCols) - 16);
     const cardH = 168;
     const stepX = cardW + 16;
     const startX = width / 2 - ((upgradeCols - 1) * stepX) / 2;

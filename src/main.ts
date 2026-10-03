@@ -14,6 +14,8 @@ import { GardenScene } from './scenes/GardenScene';
 import { ShopScene } from './scenes/ShopScene';
 import { SettingsScene } from './scenes/SettingsScene';
 import { TaskOverlayScene } from './scenes/TaskOverlayScene';
+import { IceCreamScene } from './scenes/IceCreamScene';
+import { BoutiqueScene } from './scenes/BoutiqueScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -38,6 +40,8 @@ const config: Phaser.Types.Core.GameConfig = {
     KitchenScene,
     PoolScene,
     GardenScene,
+    IceCreamScene,
+    BoutiqueScene,
     ShopScene,
     SettingsScene,
     TaskOverlayScene,

@@ -50,7 +50,10 @@ export function sheen(
   alpha = 0.28
 ): void {
   g.fillStyle(COLORS.white, alpha);
-  g.fillRoundedRect(x + 4, y + 4, w - 8, h * 0.42, radius);
+  // Clamped: a radius over half the band's height makes Phaser draw stray corners outside
+  // it, which shows as pale squares behind any near-square button.
+  const bandH = h * 0.42;
+  g.fillRoundedRect(x + 4, y + 4, w - 8, bandH, Math.min(radius, bandH / 2, (w - 8) / 2));
 }
 
 /** A light card surface — used for signs, panels and boards. */

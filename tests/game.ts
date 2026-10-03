@@ -6,6 +6,26 @@ import { ALL_SKILLS, Level } from '../src/tasks/types';
 type Tally = { contexts: number; oscillators: number; buffers: number; pitches: number[] };
 
 /**
+ * Storage keys, restated here rather than imported. Renaming one in the game would strand
+ * every child's hotel on every device, so a test should break when that happens.
+ */
+export const PROFILES_KEY = 'sommer-hotellet-profiles';
+export const LEGACY_SAVE_KEY = 'sommer-hotellet-save';
+export const saveKeyFor = (id: string) => `${LEGACY_SAVE_KEY}:${id}`;
+
+export interface TestProfile { id: string; name: string; avatar: string }
+
+/** Something tappable on a scene: where it sits, what it says, and what it carries. */
+export interface Target {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  labels: string[];
+  data: Record<string, unknown>;
+}
+
+/**
  * Test harness for driving the Phaser canvas.
  *
  * Everything goes through game coordinates (GAME_WIDTH x GAME_HEIGHT, read from the game's
@@ -27,17 +47,50 @@ export class Game {
     });
   }
 
+  /** The one player most tests play as. */
+  static readonly PLAYER: TestProfile = { id: 'p1', name: 'Alma', avatar: 'kat' };
+
+  /** A fresh hotel: one player, who has not played yet. */
   static async open(page: Page): Promise<Game> {
+    return Game.openWithStorage(page, Game.players([Game.PLAYER]));
+  }
+
+  /** Numbers every seed, so a page that is opened twice gets the second one. */
+  private static seeds = 0;
+
+  /**
+   * Opens the game on exactly this localStorage.
+   *
+   * Seeded once per call rather than on every load, so a test can reload the page — which is
+   * what closing the game and opening it again looks like — and find what it left behind.
+   * Init scripts cannot be removed and all of them run on every load, so each seed carries
+   * a number and only writes when it is newer than the last one applied: a test that opens
+   * the page again with a new seed gets the new seed, and a reload gets none.
+   */
+  static async openWithStorage(page: Page, entries: Record<string, unknown>): Promise<Game> {
     const game = new Game(page);
     // The game honours prefers-reduced-motion by collapsing camera fades and the tap
     // squash. Enabling it here means the suite is not gated on animation time — which
     // matters because software WebGL runs at a few frames a second.
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.addInitScript(() => window.localStorage.clear());
     await Game.installAudioSpy(page);
+    await page.addInitScript(([seed, generation]) => {
+      const applied = Number(window.sessionStorage.getItem('__seeded') ?? 0);
+      if (generation <= applied) return;
+      window.sessionStorage.setItem('__seeded', String(generation));
+      window.localStorage.clear();
+      for (const [key, value] of Object.entries(seed)) {
+        window.localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+      }
+    }, [entries, ++Game.seeds] as const);
     await page.goto('/');
     await game.waitForScene('MainMenuScene');
     return game;
+  }
+
+  /** A profile index listing these players, with `last` as whoever played last. */
+  static players(profiles: TestProfile[], last: string | null = profiles[0]?.id ?? null): Record<string, unknown> {
+    return { [PROFILES_KEY]: { version: 1, profiles, last } };
   }
 
   /**
@@ -177,8 +230,14 @@ export class Game {
     await this.waitForScene('HotelMapScene');
   }
 
+  /** Picks the first player on the title screen and waits for their hotel. */
   async start(): Promise<void> {
-    await this.tap(AT.playButton.x, AT.playButton.y);
+    await this.pickPlayer();
+  }
+
+  /** Taps a player's card — by name, or the first one — and waits for the map. */
+  async pickPlayer(name?: string): Promise<void> {
+    await this.tapTarget('MainMenuScene', name ? { label: name } : { data: { slot: 0 } });
     await this.waitForScene('HotelMapScene');
   }
 
@@ -187,12 +246,83 @@ export class Game {
     return expect.poll(async () => read(await this.save()), { timeout: 12_000, message });
   }
 
-  /** Reads the persisted save, which is the game's single source of truth. */
+  /**
+   * Reads the active player's persisted save, which is the game's single source of truth.
+   * Which player is active comes off the live game state; null before anyone is.
+   */
   async save(): Promise<any> {
-    return this.page.evaluate(() => {
-      const raw = window.localStorage.getItem('sommer-hotellet-save');
+    return this.page.evaluate((key) => {
+      const id = window.__state.profileId;
+      const raw = id ? window.localStorage.getItem(`${key}:${id}`) : null;
       return raw ? JSON.parse(raw) : null;
-    });
+    }, LEGACY_SAVE_KEY);
+  }
+
+  /** Any one stored key, parsed. */
+  async stored(key: string): Promise<any> {
+    return this.page.evaluate((k) => {
+      const raw = window.localStorage.getItem(k);
+      return raw ? JSON.parse(raw) : null;
+    }, key);
+  }
+
+  /** The profile index: who the players are, and who played last. */
+  async profiles(): Promise<{ version: number; profiles: TestProfile[]; last: string | null } | null> {
+    return this.stored(PROFILES_KEY);
+  }
+
+  /**
+   * Every interactive object on a scene, at its position on the stage.
+   *
+   * Profile cards, avatar discs and the delete key carry their identity as Phaser data
+   * rather than as a label, because a face is not a word; everything else is found by the
+   * text on it.
+   */
+  async targets(sceneKey: string): Promise<Target[]> {
+    return this.page.evaluate((key) => {
+      const found: any[] = [];
+      const textsIn = (o: any): string[] => {
+        const out: string[] = [];
+        for (const c of o.list ?? []) {
+          if (c?.type === 'Text') out.push(c.text);
+          if (Array.isArray(c?.list)) out.push(...textsIn(c));
+        }
+        return out;
+      };
+      const walk = (objs: any[], ox: number, oy: number) => {
+        for (const o of objs || []) {
+          if (!o) continue;
+          const x = ox + (o.x || 0);
+          const y = oy + (o.y || 0);
+          if (o.input?.enabled) {
+            found.push({
+              x, y,
+              w: o.input.hitArea?.width ?? 0,
+              h: o.input.hitArea?.height ?? 0,
+              labels: textsIn(o),
+              data: o.data ? { ...o.data.list } : {},
+            });
+          }
+          if (Array.isArray(o.list)) walk(o.list, x, y);
+        }
+      };
+      walk((window.__game.scene.getScene(key) as any).children.list, 0, 0);
+      return found;
+    }, sceneKey);
+  }
+
+  /** Taps the one target whose label or data matches. */
+  async tapTarget(
+    sceneKey: string,
+    match: { label?: string; data?: Record<string, unknown> }
+  ): Promise<void> {
+    const all = await this.targets(sceneKey);
+    const target = all.find(t =>
+      (match.label === undefined || t.labels.includes(match.label)) &&
+      Object.entries(match.data ?? {}).every(([k, v]) => t.data[k] === v)
+    );
+    if (!target) throw new Error(`no target on ${sceneKey} matching ${JSON.stringify(match)}`);
+    await this.tap(target.x, target.y);
   }
 
   async stars(): Promise<number> {
@@ -876,14 +1006,21 @@ export class Game {
     return (await this.save())?.guests ?? [];
   }
 
-  /** Seeds a save before the page loads, to reach a state without grinding for it. */
+  /**
+   * Seeds a save before the page loads, to reach a state without grinding for it. It is
+   * `Game.PLAYER`'s save, and they are the one who played last, so the title screen already
+   * obeys its sound settings.
+   */
   static async openWithSave(page: Page, patch: Record<string, unknown>): Promise<Game> {
-    const game = new Game(page);
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    await Game.installAudioSpy(page);
-    await page.addInitScript((seed) => {
-      window.localStorage.setItem('sommer-hotellet-save', JSON.stringify(seed));
-    }, {
+    return Game.openWithStorage(page, {
+      ...Game.players([Game.PLAYER]),
+      [saveKeyFor(Game.PLAYER.id)]: Game.saveWith(patch),
+    });
+  }
+
+  /** A whole version-4 save: a fresh hotel with `patch` on top. */
+  static saveWith(patch: Record<string, unknown>): Record<string, unknown> {
+    return {
       version: 4,
       stars: 0,
       guests: [],
@@ -901,10 +1038,7 @@ export class Game {
       settings: { mode: 'leg', matematik: true, dansk: true, voices: false, sound: true, music: false },
       skills: {},
       ...patch,
-    });
-    await page.goto('/');
-    await game.waitForScene('MainMenuScene');
-    return game;
+    };
   }
 
   expectNoErrors(): void {
@@ -931,8 +1065,9 @@ const SCENE_FOR_AREA = {
 
 /** Game-coordinate click targets, kept next to the scenes they belong to. */
 export const AT = {
-  playButton: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.82 },
-  exitButton: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.93 },
+  // The player cards move with how many players there are, so they are found by
+  // `pickPlayer()` rather than listed here.
+  exitButton: { x: 72, y: 38 },
   back: { x: 56, y: 34 },
 
   map: {

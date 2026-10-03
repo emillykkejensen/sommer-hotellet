@@ -1,5 +1,6 @@
 import { Level } from '../tasks/types';
-import { mirrorSave } from '../helpers/Native';
+import { mirror, unmirror } from '../helpers/Native';
+import { Profile, findProfile, lastProfileId, migrateLegacySave, saveKeyFor, setLastProfile } from './Profiles';
 import { randomOrder } from './Menu';
 import { isGarment, isIce, randomGarment, randomIce } from './Extras';
 import type { Area } from './Shop';
@@ -171,7 +172,7 @@ export interface LeadResult {
   late: boolean;
 }
 
-export const SAVE_KEY = 'sommer-hotellet-save';
+// Each player's save lives under its own key; see state/Profiles for the layout.
 const SAVE_VERSION = 4;
 
 /** Rooms the hotel starts with. The fourth is a shop upgrade. */
@@ -245,9 +246,21 @@ class GameState {
   owned: string[] = [];
   settings: Settings = this.freshSettings();
   skills: Record<string, SkillProgress> = {};
+  /**
+   * Whose hotel this is. Every save, load and reset goes to this player's key.
+   *
+   * Null only when there is nobody to be — no players yet — and then nothing is written:
+   * the title screen must not invent a save for a child who has not been created.
+   */
+  profileId: string | null = null;
 
   constructor() {
     this.rooms = this.freshRooms();
+    // A save from before profiles becomes the first player's before anything reads it.
+    migrateLegacySave();
+    // Until somebody taps a card, wear whoever played last: their sound and music settings
+    // are what the title screen should obey.
+    this.profileId = lastProfileId();
     this.load();
   }
 
@@ -1048,7 +1061,45 @@ class GameState {
 
   // ---------- persistence ----------
 
+  /** The active player's save key; null before there is anyone to save for. */
+  private get saveKey(): string | null {
+    return this.profileId ? saveKeyFor(this.profileId) : null;
+  }
+
+  /** The active player's name and face, or null before anyone has been created. */
+  get profile(): Profile | null {
+    return findProfile(this.profileId);
+  }
+
+  /**
+   * Makes `id` the player whose hotel this is, and puts their hotel on the table.
+   *
+   * Memory is emptied first: `load()` only fills in what a save has, so a player with no
+   * save yet would otherwise sit down in the previous child's hotel.
+   */
+  loadProfile(id: string | null): void {
+    this.profileId = id;
+    this.clear();
+    this.load();
+    if (id) setLastProfile(id);
+  }
+
+  /** "Start forfra": this player's hotel goes back to the beginning. Nobody else's does. */
   reset(): void {
+    this.clear();
+    const key = this.saveKey;
+    if (!key) return;
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // localStorage may be unavailable; in-memory reset is still correct
+    }
+    // or the native copy would put the old hotel back the next time web storage is lost
+    unmirror(key);
+  }
+
+  /** An empty hotel in memory. Touches nothing on disk. */
+  private clear(): void {
     this.stars = 0;
     this.guests = [];
     this.rooms = this.freshRooms();
@@ -1060,14 +1111,12 @@ class GameState {
     this.owned = [];
     this.settings = this.freshSettings();
     this.skills = {};
-    try {
-      localStorage.removeItem(SAVE_KEY);
-    } catch {
-      // localStorage may be unavailable; in-memory reset is still correct
-    }
   }
 
   save(): void {
+    const key = this.saveKey;
+    if (!key) return;
+
     const json = JSON.stringify({
       version: SAVE_VERSION,
       stars: this.stars,
@@ -1084,20 +1133,23 @@ class GameState {
     });
 
     try {
-      localStorage.setItem(SAVE_KEY, json);
+      localStorage.setItem(key, json);
     } catch {
       // private browsing or a full quota — the game still plays, it just will not persist
     }
 
     // On Android the same bytes go to native storage as well, which survives the WebView
     // having its web data cleared. No-op in a browser.
-    mirrorSave(json);
+    mirror(key, json);
   }
 
   load(): void {
+    const key = this.saveKey;
+    if (!key) return;
+
     let data: Record<string, unknown> | null = null;
     try {
-      const raw = localStorage.getItem(SAVE_KEY);
+      const raw = localStorage.getItem(key);
       data = raw ? JSON.parse(raw) : null;
     } catch {
       data = null;

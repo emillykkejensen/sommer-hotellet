@@ -318,7 +318,7 @@ export class PoolScene extends BaseScene {
       if (this.sliding) return;
       this.sliding = true;
 
-      const rider = this.add.container(x - 6, y - 62, [drawHead(this, 0, 0, COLORS.yellow, 0.95)])
+      const rider = this.add.container(x - 6, y - 62, [drawHead(this, 0, 0, COLORS.yellow, 0.95, 10)])
         .setDepth(870);
 
       this.tweens.add({
@@ -445,7 +445,7 @@ export class PoolScene extends BaseScene {
       ring.fillStyle(COLORS.water, 0.55);
       ring.fillCircle(0, 6, 10);
       c.add(ring);
-      c.add(drawHead(this, 0, -4, guest.color, 0.9));
+      c.add(drawHead(this, 0, -4, guest.color, 0.9, guest.id, guest.wearing));
       this.addGuest(guest, c, { w: 56, h: 60, thoughtY: -26 });
 
       if (!reduceMotion()) {
@@ -478,7 +478,7 @@ export class PoolScene extends BaseScene {
       const y = height * 0.79;
 
       const c = this.add.container(x, y);
-      c.add(drawPerson(this, 0, 0, guest.color, 1.05));
+      c.add(drawPerson(this, 0, 0, guest.color, 1.05, guest.id, guest.wearing));
       c.add(this.add.text(0, 50, guest.name, text(SIZE.tiny, '#5A4E42', 'bold')).setOrigin(0.5));
       this.addGuest(guest, c, { w: 70, h: 96, thoughtY: -44, barY: 66 });
     });

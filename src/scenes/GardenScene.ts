@@ -287,7 +287,7 @@ export class GardenScene extends BaseScene {
     seat.fillStyle(COLORS.red);
     seat.fillRoundedRect(-17, 49, 34, 5, 2.5);
     swing.add(seat);
-    swing.add(drawHead(this, 0, 38, COLORS.purple, 0.85));
+    swing.add(drawHead(this, 0, 38, COLORS.purple, 0.85, 2));
     c.add(swing);
 
     c.add(caption(this, 0, 52, 'Sæt gyngen i gang'));

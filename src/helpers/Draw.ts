@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { COLORS, INK, INK_SOFT, LINE, SIZE, text } from '../config';
 import { bob, press, reduceMotion } from './Motion';
 import { audio } from './Audio';
+import { parseGarment } from '../state/Extras';
+import { paintWearable } from '../objects/Icons';
 
 /**
  * The shared drawing kit.
@@ -700,133 +702,514 @@ export function scatterFlowers(
   return g;
 }
 
+/* ------------------------------------------------------------------- people --- */
+
+/**
+ * What a guest looks like, beyond the colour they are known by.
+ *
+ * The body colour is the guest's identity — the order board and the patience bar match it —
+ * so it always stays the shirt or dress. Everything else is derived from a seed (the guest
+ * id), so a lobby of three is three people rather than one person three times, and the same
+ * guest looks the same in every room they walk into.
+ *
+ * Each trait cycles on a different length (6 styles, 5 skin tones, 7 hair slots, 4 outfits),
+ * so neighbouring ids never share a hair style and the full combination only comes round
+ * again after hundreds of guests.
+ */
+interface Look {
+  skin: number;
+  hair: number;
+  /** Every silver-haired guest, and the odd other one. */
+  glasses: boolean;
+  style: HairStyle;
+  outfit: 'trousers' | 'shorts' | 'dress';
+  trousers: number;
+  shoes: number;
+  blush: number;
+  blushAlpha: number;
+}
+
+type HairStyle = 'short' | 'bob' | 'curly' | 'bun' | 'pigtails' | 'sunhat';
+
+const HAIR_STYLES: HairStyle[] = ['short', 'bob', 'curly', 'bun', 'pigtails', 'sunhat'];
+/** Light to dark, all warm. The darkest stays light enough for the eyes to read against. */
+const SKIN_TONES = [0xFCE3CC, 0xF2C9A2, 0xDDA678, 0xB97F52, 0x8E5B3B];
+/** Brown, near-black, chestnut, ginger, blond, silver. Never black. */
+const HAIR_COLORS = [0x6E452B, 0x413026, 0xA4683A, 0xCF8744, 0xE6C26C, 0xD5CEC4];
+const TROUSERS = [0x5D7BA6, 0x7B5E49, 0x626A78, 0xAD9268];
+const SHOES = [0x7A5038, COLORS.red, COLORS.white];
+
+function lookFor(seed: number): Look {
+  const n = Math.abs(Math.trunc(seed)) || 0;
+  const skinIndex = [1, 3, 0, 4, 2][n % 5];
+  let hairIndex = [0, 4, 1, 2, 5, 3, 1][n % 7];
+  // On the two darkest tones chestnut, ginger or blond hair has too little contrast to read
+  // as hair at all — it turns into a bald head. They get near-black (or a dark brown on the
+  // lighter of the two); silver stays, because it reads against anything.
+  const dark = skinIndex >= 3;
+  if (dark && hairIndex !== 5) hairIndex = skinIndex === 3 && n % 2 === 0 ? 0 : 1;
+  return {
+    skin: SKIN_TONES[skinIndex],
+    hair: HAIR_COLORS[hairIndex],
+    glasses: hairIndex === 5 || n % 12 === 7,
+    style: HAIR_STYLES[n % HAIR_STYLES.length],
+    outfit: (['trousers', 'dress', 'shorts', 'trousers'] as const)[n % 4],
+    trousers: TROUSERS[(n >> 1) % TROUSERS.length],
+    shoes: SHOES[n % SHOES.length],
+    // Pink blush disappears on darker skin; a warmer red still reads as rosy.
+    blush: dark ? COLORS.red : COLORS.pink,
+    blushAlpha: dark ? 0.4 : 0.5,
+  };
+}
+
+/**
+ * A guest's look, with anything they were given at the boutique taking the place of what
+ * they came with: a sun hat or a cap goes on instead of their own sun hat, and sunglasses
+ * instead of their glasses.
+ */
+function dressedLook(seed: number, wearing: string | null): Look {
+  const base = lookFor(seed);
+  const kind = wearing ? parseGarment(wearing)?.kind : undefined;
+  if (!kind) return base;
+  if (kind === 'solbriller') return { ...base, glasses: false };
+  return base.style === 'sunhat' ? { ...base, style: 'short' } : base;
+}
+
+/** The boutique's gift, on its own Graphics above the eyes so sunglasses cover them. */
+function dressUp(
+  scene: Phaser.Scene,
+  wearing: string | null,
+  head: { x: number; y: number; r: number },
+  eyeY: number
+): Phaser.GameObjects.Graphics | null {
+  if (!wearing) return null;
+  const worn = scene.add.graphics();
+  paintWearable(worn, wearing, head.x, head.y, head.r, eyeY);
+  return worn;
+}
+
+/**
+ * Outline width for people, as an underlay.
+ *
+ * A person is a dozen small parts, and stroking each one is what made the old figure
+ * expensive: forty of them on screen cost about three times the frame time these do under
+ * software WebGL. Instead every part is filled twice: once in the outline colour grown by
+ * this much, then in its own colour. Parts drawn later lay their ink over earlier ones, so a
+ * sleeve gets a line where it crosses the shirt and a chin gets one against the collar,
+ * with no stroke anywhere.
+ */
+const PERSON_INK = 1.9;
+const PERSON_INK_ALPHA = 0.9;
+
+type Pt = { x: number; y: number };
+
+/** A closed, smooth loop through control points given in units of `r` around (cx, cy). */
+function smoothLoop(ctrl: readonly number[], cx: number, cy: number, r: number, steps = 4): Pt[] {
+  const n = ctrl.length / 2;
+  const px = (i: number) => cx + ctrl[((i + n) % n) * 2] * r;
+  const py = (i: number) => cy + ctrl[((i + n) % n) * 2 + 1] * r;
+  const out: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const x0 = px(i - 1), x1 = px(i), x2 = px(i + 1), x3 = px(i + 2);
+    const y0 = py(i - 1), y1 = py(i), y2 = py(i + 1), y3 = py(i + 2);
+    for (let k = 0; k < steps; k++) {
+      // Catmull-Rom: passes through every control point, so the shapes are easy to tune.
+      const t = k / steps, t2 = t * t, t3 = t2 * t;
+      out.push({
+        x: 0.5 * (2 * x1 + (x2 - x0) * t + (2 * x0 - 5 * x1 + 4 * x2 - x3) * t2 + (3 * x1 - x0 - 3 * x2 + x3) * t3),
+        y: 0.5 * (2 * y1 + (y2 - y0) * t + (2 * y0 - 5 * y1 + 4 * y2 - y3) * t2 + (3 * y1 - y0 - 3 * y2 + y3) * t3),
+      });
+    }
+  }
+  return out;
+}
+
+/** A polygon with each corner rounded off: one [x, y, radius] per corner. */
+function roundPoly(corners: readonly (readonly [number, number, number])[]): Pt[] {
+  const out: Pt[] = [];
+  const n = corners.length;
+  for (let i = 0; i < n; i++) {
+    const [px, py] = corners[(i + n - 1) % n];
+    const [x, y, r] = corners[i];
+    const [nx, ny] = corners[(i + 1) % n];
+    const d1 = Math.hypot(px - x, py - y) || 1;
+    const d2 = Math.hypot(nx - x, ny - y) || 1;
+    const k1 = Math.min(r, d1 / 2) / d1;
+    const k2 = Math.min(r, d2 / 2) / d2;
+    const ax = x + (px - x) * k1, ay = y + (py - y) * k1;
+    const bx = x + (nx - x) * k2, by = y + (ny - y) * k2;
+    for (let k = 0; k <= 4; k++) {
+      const t = k / 4, m = 1 - t;
+      out.push({ x: m * m * ax + 2 * m * t * x + t * t * bx, y: m * m * ay + 2 * m * t * y + t * t * by });
+    }
+  }
+  return out;
+}
+
+/** A limb: a rounded bar from one point to another, `w` wide either side. */
+function capsule(x1: number, y1: number, x2: number, y2: number, w: number): Pt[] {
+  const a = Math.atan2(y2 - y1, x2 - x1);
+  const out: Pt[] = [];
+  for (let k = 0; k <= 6; k++) {
+    const t = a - Math.PI / 2 + (k / 6) * Math.PI;
+    out.push({ x: x2 + Math.cos(t) * w, y: y2 + Math.sin(t) * w });
+  }
+  for (let k = 0; k <= 6; k++) {
+    const t = a + Math.PI / 2 + (k / 6) * Math.PI;
+    out.push({ x: x1 + Math.cos(t) * w, y: y1 + Math.sin(t) * w });
+  }
+  return out;
+}
+
+function oval(cx: number, cy: number, rx: number, ry: number, n = 20): Pt[] {
+  const out: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = (i / n) * Math.PI * 2;
+    out.push({ x: cx + Math.cos(t) * rx, y: cy + Math.sin(t) * ry });
+  }
+  return out;
+}
+
+/** Grows (or, negative, shrinks) a closed polygon by `d`, mitring each corner. */
+function inflate(pts: readonly Pt[], d: number): Pt[] {
+  const n = pts.length;
+  let area = 0;
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], q = pts[(i + 1) % n];
+    area += p.x * q.y - q.x * p.y;
+  }
+  const side = area > 0 ? 1 : -1;
+  return pts.map((p, i) => {
+    const a = pts[(i + n - 1) % n], b = pts[(i + 1) % n];
+    let ex = p.x - a.x, ey = p.y - a.y;
+    let l = Math.hypot(ex, ey) || 1;
+    ex /= l; ey /= l;
+    let fx = b.x - p.x, fy = b.y - p.y;
+    l = Math.hypot(fx, fy) || 1;
+    fx /= l; fy /= l;
+    const n1x = ey * side, n1y = -ex * side;
+    const n2x = fy * side, n2y = -fx * side;
+    const k = d / Math.max(0.35, 1 + n1x * n2x + n1y * n2y);
+    return { x: p.x + (n1x + n2x) * k, y: p.y + (n1y + n2y) * k };
+  });
+}
+
+function shift(pts: readonly Pt[], dx: number, dy: number): Pt[] {
+  return pts.map(p => ({ x: p.x + dx, y: p.y + dy }));
+}
+
+/** The outline underlay for a group of shapes that should share one silhouette. */
+function ink(g: Phaser.GameObjects.Graphics, shapes: readonly Pt[][], o: number): void {
+  g.fillStyle(COLORS.outline, PERSON_INK_ALPHA);
+  for (const p of shapes) g.fillPoints(inflate(p, o), true);
+}
+
+function fill(g: Phaser.GameObjects.Graphics, shapes: readonly Pt[][], color: number, alpha = 1): void {
+  g.fillStyle(color, alpha);
+  for (const p of shapes) g.fillPoints(p, true);
+}
+
+/** Ink, then fill: one outlined part. */
+function part(g: Phaser.GameObjects.Graphics, shapes: readonly Pt[][], color: number, o: number): void {
+  ink(g, shapes, o);
+  fill(g, shapes, color);
+}
+
+/** Clothing is shaded the way every other solid is: a darker side, the lit face inset. */
+function cloth(g: Phaser.GameObjects.Graphics, shape: Pt[], color: number, o: number, s: number): void {
+  ink(g, [shape], o);
+  fill(g, [shape], shade(color, -0.16));
+  fill(g, [shift(inflate(shape, -1.5 * s), -1.1 * s, -0.9 * s)], color);
+}
+
+interface Hair {
+  /** Behind everything — drawn before the body, so shoulders sit in front of it. */
+  back: Pt[][];
+  /** Over the forehead. */
+  front: Pt[][];
+  /** Whether the front reaches outside the face and so needs its own outline. */
+  frontInked: boolean;
+  /** Drawn last, outlined on its own: hats and hair ties. */
+  extras?: (g: Phaser.GameObjects.Graphics, o: number) => void;
+}
+
+/*
+ * Hair shapes, as control points in units of the head's radius around its centre (y down).
+ * The face is an ellipse 1 wide and 0.93 tall in these units; eyes sit just below centre.
+ */
+const SHORT_HAIR = [
+  -1.02, 0.12, -1.1, -0.4, -0.86, -0.88, -0.34, -1.13, 0.3, -1.14, 0.86, -0.9, 1.1, -0.42,
+  1.03, 0.08, 0.86, -0.24, 0.54, -0.46, 0.1, -0.5, -0.3, -0.66, -0.78, -0.42,
+];
+const BOB_BACK = [
+  -1.16, 0.78, -1.27, 0.05, -1.13, -0.68, -0.62, -1.1, 0, -1.18, 0.62, -1.1, 1.13, -0.68,
+  1.27, 0.05, 1.16, 0.78, 0.62, 0.86, -0.62, 0.86,
+];
+const BOB_FRINGE = [
+  -1.06, -0.05, -1.04, -0.58, -0.62, -1.02, 0, -1.12, 0.62, -1.02, 1.04, -0.58, 1.06, -0.05,
+  0.88, -0.34, 0.44, -0.4, 0, -0.37, -0.44, -0.4, -0.88, -0.34,
+];
+const PARTED_HAIR = [
+  -1.04, 0.04, -1.1, -0.45, -0.8, -0.92, 0, -1.14, 0.8, -0.92, 1.1, -0.45, 1.04, 0.04,
+  0.86, -0.3, 0.46, -0.52, 0, -0.64, -0.46, -0.52, -0.86, -0.3,
+];
+const UNDER_HAT = [
+  -1.1, 0.4, -1.16, -0.3, -0.86, -0.84, 0, -1.02, 0.86, -0.84, 1.16, -0.3, 1.1, 0.4,
+  0.55, 0.3, -0.55, 0.3,
+];
+
+/** Straw for the sun hat. */
+const STRAW = 0xF1D38E;
+/** Inside of an open, smiling mouth: a warm dark red, not the outline brown. */
+const MOUTH = 0x8A3F33;
+
+function hairFor(look: Look, bodyColor: number, cx: number, cy: number, r: number): Hair {
+  const at = (ctrl: readonly number[]) => smoothLoop(ctrl, cx, cy, r);
+  switch (look.style) {
+    case 'short':
+      return { back: [], front: [at(SHORT_HAIR)], frontInked: true };
+    case 'bob':
+      return { back: [at(BOB_BACK)], front: [at(BOB_FRINGE)], frontInked: false };
+    case 'curly': {
+      // One scalloped outline rather than a ring of circles: the same look, one shape.
+      const lobes = 11;
+      const ring: Pt[] = [];
+      for (let i = 0; i < 66; i++) {
+        const t = (i / 66) * Math.PI * 2;
+        const k = 1 + 0.11 * (Math.abs(Math.sin((t * lobes) / 2)) - 0.6);
+        ring.push({ x: cx + Math.cos(t) * 1.24 * r * k, y: cy - 0.1 * r + Math.sin(t) * 1.08 * r * k });
+      }
+      const curls = [[-0.66, -0.6], [-0.23, -0.8], [0.23, -0.8], [0.66, -0.6]]
+        .map(([x, y]) => oval(cx + x * r, cy + y * r, 0.31 * r, 0.31 * r, 12));
+      return { back: [ring], front: curls, frontInked: false };
+    }
+    case 'bun':
+      return { back: [oval(cx, cy - 1.0 * r, 0.3 * r, 0.28 * r, 14)], front: [at(PARTED_HAIR)], frontInked: true };
+    case 'pigtails':
+      return {
+        back: [-1, 1].map(side => oval(cx + side * 1.2 * r, cy + 0.14 * r, 0.3 * r, 0.4 * r, 14)),
+        front: [at(PARTED_HAIR)],
+        frontInked: true,
+        extras: (g, o) => part(
+          g,
+          [-1, 1].map(side => oval(cx + side * 0.98 * r, cy - 0.16 * r, 0.13 * r, 0.13 * r, 10)),
+          shade(bodyColor, -0.25),
+          o * 0.7
+        ),
+      };
+    case 'sunhat':
+      return {
+        back: [at(UNDER_HAT)],
+        front: [],
+        frontInked: false,
+        extras: (g, o) => {
+          const crown = oval(cx, cy - 0.86 * r, 0.8 * r, 0.46 * r, 18);
+          const brim = oval(cx, cy - 0.5 * r, 1.46 * r, 0.26 * r, 22);
+          part(g, [crown], STRAW, o);
+          fill(g, [oval(cx, cy - 0.62 * r, 0.8 * r, 0.16 * r, 14)], shade(bodyColor, -0.2));
+          part(g, [brim], shade(STRAW, -0.08), o);
+          g.fillStyle(COLORS.white, 0.35);
+          g.fillEllipse(cx - 0.3 * r, cy - 1.0 * r, 0.42 * r, 0.16 * r);
+        },
+      };
+  }
+}
+
+/**
+ * A face, its hair and anything on its head, into `g`. Returns the eye line, which is where
+ * the separate eyes object goes so that squashing it reads as a blink.
+ */
+function paintHead(
+  g: Phaser.GameObjects.Graphics,
+  hair: Hair,
+  look: Look,
+  cx: number, cy: number, r: number,
+  o: number
+): number {
+  const face = oval(cx, cy, r, r * 0.93, 24);
+
+  // One ink pass for the face and a fringe that pokes out past it, so the hairline on the
+  // forehead is a change of colour rather than a line drawn across the face.
+  ink(g, hair.frontInked ? [face, ...hair.front] : [face], o);
+  fill(g, [face], look.skin);
+  fill(g, hair.front, look.hair);
+  if (look.style !== 'sunhat') {
+    g.fillStyle(COLORS.white, 0.22);
+    g.fillEllipse(cx - 0.42 * r, cy - 0.86 * r, 0.5 * r, 0.18 * r);
+  }
+
+  // cheeks, and an open smile — a filled shape stays a smile at sizes where a thin
+  // stroked arc breaks up into pixels
+  g.fillStyle(look.blush, look.blushAlpha);
+  g.fillEllipse(cx - 0.6 * r, cy + 0.36 * r, 0.38 * r, 0.24 * r);
+  g.fillEllipse(cx + 0.6 * r, cy + 0.36 * r, 0.38 * r, 0.24 * r);
+  g.fillStyle(MOUTH);
+  g.slice(cx, cy + 0.36 * r, 0.21 * r, 0, Math.PI, false);
+  g.fillPath();
+
+  // HEAD.eyeY says the same for drawHead; keep the two in step.
+  const eyeY = cy + 0.06 * r;
+  if (look.glasses) {
+    // Round frames around the eye line; they stay put while the eyes blink inside them.
+    // The one place a person is stroked, and only the few guests who wear them pay for it.
+    const lens = 0.25 * r;
+    g.fillStyle(COLORS.white, 0.3);
+    g.fillCircle(cx - 0.36 * r, eyeY, lens);
+    g.fillCircle(cx + 0.36 * r, eyeY, lens);
+    g.lineStyle(Math.max(1.2, 0.09 * r), COLORS.outline, 0.9);
+    g.strokeCircle(cx - 0.36 * r, eyeY, lens);
+    g.strokeCircle(cx + 0.36 * r, eyeY, lens);
+    g.lineBetween(cx - 0.11 * r, eyeY - 0.04 * r, cx + 0.11 * r, eyeY - 0.04 * r);
+  }
+
+  hair.extras?.(g, o);
+  return eyeY;
+}
+
+/** Eyes into their own Graphics, centred on (0, 0) so a scaleY squash closes them. */
+function paintEyes(eyes: Phaser.GameObjects.Graphics, r: number): void {
+  eyes.fillStyle(COLORS.outline);
+  eyes.fillEllipse(-0.36 * r, 0, 0.21 * r, 0.28 * r);
+  eyes.fillEllipse(0.36 * r, 0, 0.21 * r, 0.28 * r);
+  eyes.fillStyle(COLORS.white, 0.95);
+  eyes.fillCircle(-0.39 * r, -0.06 * r, 0.055 * r);
+  eyes.fillCircle(0.33 * r, -0.06 * r, 0.055 * r);
+}
+
 /**
  * Guest / staff figure.
  *
- * The eyes are a separate Graphics positioned on the eye line, so collapsing its
- * scaleY reads as a blink rather than as the whole face squashing.
+ * Proportioned like a picture-book child — a big round head on a small tapered body, about
+ * 1 : 1.5 — because the old square torso with arms out to the side read as a block. Anchored
+ * at the middle: the head tops out near -38·scale, the shoes and shadow end near +38, and
+ * nothing but a sun hat's brim or a pigtail reaches past ±20.
+ *
+ * `seed` picks skin, hair and outfit (see `lookFor`); pass the guest id so a guest looks
+ * the same everywhere. The eyes are a separate Graphics positioned on the eye line, so
+ * collapsing its scaleY reads as a blink rather than as the whole face squashing.
  */
 export function drawPerson(
   scene: Phaser.Scene,
   x: number, y: number,
   bodyColor: number,
-  scale = 1
+  scale = 1,
+  seed = 0,
+  wearing: string | null = null
 ): Phaser.GameObjects.Container {
   const c = scene.add.container(x, y);
   const g = scene.add.graphics();
   const s = scale;
-  const line = LINE.thin * s;
+  const o = PERSON_INK * s;
+  const look = dressedLook(seed, wearing);
+  const head = { x: 0, y: -21.5 * s, r: 14 * s };
+  const hair = hairFor(look, bodyColor, head.x, head.y, head.r);
 
   g.fillStyle(COLORS.shadow, 0.12);
-  g.fillEllipse(0, 36 * s, 42 * s, 11 * s);
+  g.fillEllipse(0, 35.5 * s, 32 * s, 8 * s);
 
-  // legs
-  g.fillStyle(shade(bodyColor, -0.45));
-  g.fillRoundedRect(-9 * s, 24 * s, 7 * s, 14 * s, 3 * s);
-  g.fillRoundedRect(2 * s, 24 * s, 7 * s, 14 * s, 3 * s);
-  g.lineStyle(line, COLORS.outline, 0.8);
-  g.strokeRoundedRect(-9 * s, 24 * s, 7 * s, 14 * s, 3 * s);
-  g.strokeRoundedRect(2 * s, 24 * s, 7 * s, 14 * s, 3 * s);
+  part(g, hair.back, look.hair, o);
 
-  // arms behind the torso, so the silhouette reads wide
-  g.fillStyle(shade(bodyColor, -0.12));
-  g.fillRoundedRect(-24 * s, -4 * s, 9 * s, 26 * s, 4.5 * s);
-  g.fillRoundedRect(15 * s, -4 * s, 9 * s, 26 * s, 4.5 * s);
-  g.lineStyle(line, COLORS.outline, 0.8);
-  g.strokeRoundedRect(-24 * s, -4 * s, 9 * s, 26 * s, 4.5 * s);
-  g.strokeRoundedRect(15 * s, -4 * s, 9 * s, 26 * s, 4.5 * s);
-  g.fillStyle(0xF6D9BE);
-  g.fillCircle(-19.5 * s, 21 * s, 4.8 * s);
-  g.fillCircle(19.5 * s, 21 * s, 4.8 * s);
-  g.strokeCircle(-19.5 * s, 21 * s, 4.8 * s);
-  g.strokeCircle(19.5 * s, 21 * s, 4.8 * s);
+  // legs, then shorts over them, then shoes over their ends
+  const bareLegs = look.outfit !== 'trousers';
+  for (const side of [-1, 1]) {
+    part(g, [capsule(side * 4.6 * s, 6 * s, side * 5 * s, 31 * s, 3.3 * s)], bareLegs ? look.skin : look.trousers, o);
+    if (look.outfit === 'shorts') {
+      part(g, [capsule(side * 4.8 * s, 8 * s, side * 5.4 * s, 18 * s, 4.3 * s)], look.trousers, o);
+    }
+  }
+  for (const side of [-1, 1]) {
+    const shoe = oval(side * 6.4 * s, 33 * s, 5 * s, 2.9 * s, 14);
+    part(g, [shoe], look.shoes, o);
+    g.fillStyle(COLORS.white, 0.35);
+    g.fillEllipse(side * 6.4 * s - 1.6 * s, 32 * s, 3.4 * s, 1.4 * s);
+  }
 
-  // torso
-  g.fillStyle(bodyColor);
-  g.fillRoundedRect(-17 * s, -8 * s, 34 * s, 34 * s, 11 * s);
-  g.lineStyle(LINE.base * s, COLORS.outline, 0.85);
-  g.strokeRoundedRect(-17 * s, -8 * s, 34 * s, 34 * s, 11 * s);
-  // collar
-  g.fillStyle(COLORS.white, 0.6);
-  g.fillRoundedRect(-9 * s, -9 * s, 18 * s, 6 * s, 3 * s);
+  // Arms hang just outside the shirt and behind it, so the shirt's ink separates them.
+  // The hand is part of the same silhouette as the arm: one round end, no wrist line.
+  for (const side of [-1, 1]) {
+    part(g, [
+      capsule(side * 8.6 * s, -4.5 * s, side * 13 * s, 8.5 * s, 2.8 * s),
+      oval(side * 13.6 * s, 10.5 * s, 3.4 * s, 3.4 * s, 12),
+    ], look.skin, o);
+    part(g, [capsule(side * 9 * s, -4.5 * s, side * 11 * s, 0.5 * s, 4 * s)], shade(bodyColor, -0.08), o);
+  }
 
-  // neck + head
-  g.fillStyle(0xF6D9BE);
-  g.fillRoundedRect(-4 * s, -14 * s, 8 * s, 8 * s, 3 * s);
-  g.fillCircle(0, -24 * s, 14 * s);
-  g.lineStyle(LINE.base * s, COLORS.outline, 0.85);
-  g.strokeCircle(0, -24 * s, 14 * s);
-  // hair
-  g.fillStyle(shade(bodyColor, -0.55));
-  g.slice(0, -24 * s, 14.5 * s, Phaser.Math.DegToRad(180), Phaser.Math.DegToRad(360), false);
-  g.fillPath();
+  // A tapered shirt, or an A-line dress that comes down over the knees.
+  const dress = look.outfit === 'dress';
+  const hem = dress ? 21 : 14;
+  const flare = dress ? 16 : 12.6;
+  const shirt = roundPoly([
+    [-9.4 * s, -9.5 * s, 5 * s], [9.4 * s, -9.5 * s, 5 * s],
+    [flare * s, hem * s, 3 * s], [-flare * s, hem * s, 3 * s],
+  ]);
+  cloth(g, shirt, bodyColor, o, s);
+  if (dress) {
+    // a few polka dots and a round white collar
+    g.fillStyle(COLORS.white, 0.5);
+    for (const [dx, dy] of [[-6, 6], [5, 3], [0.5, 12], [-9.5, 16], [9.5, 15]]) {
+      g.fillCircle(dx * s, dy * s, 1.4 * s);
+    }
+    g.fillStyle(COLORS.white, 0.95);
+    g.fillEllipse(-3.2 * s, -7.6 * s, 6.4 * s, 3.8 * s);
+    g.fillEllipse(3.2 * s, -7.6 * s, 6.4 * s, 3.8 * s);
+  } else {
+    // a little V of neck at the collar
+    g.fillStyle(look.skin);
+    g.fillTriangle(-2.8 * s, -9.6 * s, 2.8 * s, -9.6 * s, 0, -4.6 * s);
+  }
 
-  // mouth + cheeks (the eyes go on their own object below)
-  g.lineStyle(1.8 * s, COLORS.outline, 0.85);
-  g.beginPath();
-  g.arc(0, -21 * s, 5 * s, 0.25, Math.PI - 0.25, false);
-  g.strokePath();
-  g.fillStyle(COLORS.pink, 0.45);
-  g.fillCircle(-9 * s, -21 * s, 3.4 * s);
-  g.fillCircle(9 * s, -21 * s, 3.4 * s);
-
-  const eyes = scene.add.graphics().setPosition(0, -26 * s);
-  eyes.fillStyle(COLORS.outline);
-  eyes.fillCircle(-4.5 * s, 0, 2 * s);
-  eyes.fillCircle(4.5 * s, 0, 2 * s);
-  eyes.fillStyle(COLORS.white, 0.9);
-  eyes.fillCircle(-5.3 * s, -0.8 * s, 0.7 * s);
-  eyes.fillCircle(3.7 * s, -0.8 * s, 0.7 * s);
+  const eyeY = paintHead(g, hair, look, head.x, head.y, head.r, o);
+  const eyes = scene.add.graphics().setPosition(0, eyeY);
+  paintEyes(eyes, head.r);
 
   c.add([g, eyes]);
+  const worn = dressUp(scene, wearing, head, eyeY);
+  if (worn) c.add(worn);
   blink(scene, eyes);
   return c;
 }
 
 /**
  * Where `drawHead` puts the head, in unscaled units: its centre, its radius and the eye
- * line. Anything worn on the head — a sun hat, sunglasses — is drawn against these, so it
- * keeps fitting if the face is redrawn.
+ * line — for drawing something over a head that is not a guest's own, like the boutique's
+ * dummy.
  */
-export const HEAD = { cy: -9, r: 11, eyeY: -10 };
+export const HEAD = { cy: -9.2, r: 11.2, eyeY: -9.2 + 0.06 * 11.2 };
 
-/** Head-and-shoulders only — for guests seen behind a table or in the pool. */
+/** Head-and-shoulders only — for guests seen behind a table, in the pool or in bed. */
 export function drawHead(
   scene: Phaser.Scene,
   x: number, y: number,
   bodyColor: number,
-  scale = 1
+  scale = 1,
+  seed = 0,
+  wearing: string | null = null
 ): Phaser.GameObjects.Container {
   const c = scene.add.container(x, y);
   const g = scene.add.graphics();
   const s = scale;
+  const o = PERSON_INK * s;
+  const look = dressedLook(seed, wearing);
+  const head = { x: 0, y: HEAD.cy * s, r: HEAD.r * s };
+  const hair = hairFor(look, bodyColor, head.x, head.y, head.r);
 
-  g.fillStyle(bodyColor);
-  g.fillRoundedRect(-11 * s, -2 * s, 22 * s, 12 * s, 5 * s);
-  g.lineStyle(LINE.thin * s, COLORS.outline, 0.85);
-  g.strokeRoundedRect(-11 * s, -2 * s, 22 * s, 12 * s, 5 * s);
+  part(g, hair.back, look.hair, o);
 
-  g.fillStyle(0xF6D9BE);
-  g.fillCircle(0, -9 * s, 11 * s);
-  g.strokeCircle(0, -9 * s, 11 * s);
-  g.fillStyle(shade(bodyColor, -0.55));
-  g.slice(0, -9 * s, 11.4 * s, Phaser.Math.DegToRad(185), Phaser.Math.DegToRad(355), false);
-  g.fillPath();
+  const shoulders = roundPoly([
+    [-7.6 * s, -2.5 * s, 4 * s], [7.6 * s, -2.5 * s, 4 * s],
+    [12.5 * s, 10 * s, 2.5 * s], [-12.5 * s, 10 * s, 2.5 * s],
+  ]);
+  cloth(g, shoulders, bodyColor, o, s);
+  g.fillStyle(look.skin);
+  g.fillTriangle(-2.4 * s, -2.6 * s, 2.4 * s, -2.6 * s, 0, 2.6 * s);
 
-  g.lineStyle(1.5 * s, COLORS.outline, 0.85);
-  g.beginPath();
-  g.arc(0, -6 * s, 3.6 * s, 0.25, Math.PI - 0.25, false);
-  g.strokePath();
-  g.fillStyle(COLORS.pink, 0.45);
-  g.fillCircle(-6.5 * s, -6 * s, 2.6 * s);
-  g.fillCircle(6.5 * s, -6 * s, 2.6 * s);
-
-  const eyes = scene.add.graphics().setPosition(0, -10 * s);
-  eyes.fillStyle(COLORS.outline);
-  eyes.fillCircle(-3.5 * s, 0, 1.7 * s);
-  eyes.fillCircle(3.5 * s, 0, 1.7 * s);
+  const eyeY = paintHead(g, hair, look, head.x, head.y, head.r, o);
+  const eyes = scene.add.graphics().setPosition(0, eyeY);
+  paintEyes(eyes, head.r);
 
   c.add([g, eyes]);
+  const worn = dressUp(scene, wearing, head, eyeY);
+  if (worn) c.add(worn);
   blink(scene, eyes);
   return c;
 }

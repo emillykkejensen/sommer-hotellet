@@ -594,7 +594,7 @@ export class KitchenScene extends BaseScene {
       return;
     }
 
-    c.add(drawHead(this, 0, -30, guest.color, 1.5));
+    c.add(drawHead(this, 0, -30, guest.color, 1.5, guest.id, guest.wearing));
 
     // what has already been carried out to them
     guest.served.forEach((dish, i) => {

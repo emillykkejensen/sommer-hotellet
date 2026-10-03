@@ -299,7 +299,7 @@ export class HotelMapScene extends Phaser.Scene {
         shadow(g, -20, -20, 40, 40, 20, 3, 0.2);
         plate(g, -20, -20, 40, 40, 20, COLORS.white, 1, LINE.base);
         c.add(g);
-        c.add(drawHead(this, 0, 8, guest.color, 0.9));
+        c.add(drawHead(this, 0, 8, guest.color, 0.9, guest.id, guest.wearing));
         this.hud.add(c);
         if (!reduceMotion()) {
           this.tweens.add({ targets: c, x: x + 7, duration: 520, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });

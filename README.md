@@ -206,6 +206,14 @@ fit the gap between the controls on either side. Captions are outlined tags carr
 state dot — amber for "this one still wants you", a green tick for done — so a child can
 scan a screen and see what is left without reading a word of Danish.
 
+People are drawn like picture-book children — a big round head on a small tapered body —
+rather than the square torso with arms out to the side they started as, which read as a
+block. Each guest's colour stays their shirt or dress, because that colour is how a guest is
+recognised from scene to scene; everything else — skin, hair, hair style, glasses, outfit —
+comes from a seed, the guest's id, so a lobby of three is three people and the same guest
+looks the same in every room. Whatever the boutique gives them is drawn on top, and takes
+the place of the sun hat or glasses they came with.
+
 ### State and rewards
 
 All progress lives in `src/state/GameState.ts` and is persisted to `localStorage` under the

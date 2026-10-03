@@ -56,7 +56,7 @@ export function drawGuestCard(
   disc.lineStyle(LINE.base, COLORS.outline, 0.9);
   disc.strokeCircle(faceX, -12, 31);
   c.add(disc);
-  c.add(drawHead(scene, faceX, 2, guest.color, 1.6));
+  c.add(drawHead(scene, faceX, 2, guest.color, 1.6, guest.id, guest.wearing));
   const name = scene.add.text(faceX, ch / 2 - 17, guest.name, text(SIZE.tiny, INK, 'bold'))
     .setOrigin(0.5);
   if (name.width > 86) name.setScale(86 / name.width);

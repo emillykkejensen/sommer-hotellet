@@ -223,7 +223,7 @@ export abstract class BaseScene extends Phaser.Scene {
       shadow(g, -21, -21, 42, 42, 21, 3, 0.2);
       plate(g, -21, -21, 42, 42, 21, COLORS.white, 1, LINE.base);
       c.add(g);
-      c.add(drawHead(this, 0, 9, guest.color, 0.95));
+      c.add(drawHead(this, 0, 9, guest.color, 0.95, guest.id, guest.wearing));
 
       if (guest.heading) {
         const badge = this.add.graphics().setPosition(15, 15);

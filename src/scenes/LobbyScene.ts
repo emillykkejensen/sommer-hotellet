@@ -266,7 +266,7 @@ export class LobbyScene extends BaseScene {
   /** Animated arrival, then the same interactive figure the refresh would have drawn. */
   private walkGuestIn(guest: GuestData, index: number): void {
     const slot = this.arrivalSlot(index);
-    const person = drawPerson(this, -60, slot.y, guest.color, 1.25);
+    const person = drawPerson(this, -60, slot.y, guest.color, 1.25, guest.id, guest.wearing);
     this.dyn(person);
 
     this.tweens.add({
@@ -281,7 +281,7 @@ export class LobbyScene extends BaseScene {
   /** A guest at the desk: what they want floats over their head; tap them to talk. */
   private buildGuest(guest: GuestData, slot: { x: number; y: number }): void {
     const c = this.add.container(slot.x, slot.y);
-    c.add(drawPerson(this, 0, 0, guest.color, 1.25));
+    c.add(drawPerson(this, 0, 0, guest.color, 1.25, guest.id, guest.wearing));
     c.add(caption(this, 0, 58, guest.name));
     this.addGuest(guest, c, { w: 80, h: 108, thoughtY: -52, barY: 80 });
   }

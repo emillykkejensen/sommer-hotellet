@@ -233,7 +233,8 @@ export class RoomScene extends BaseScene {
       const bedX = width / 2 - 40;
       const bedY = height * 0.57;
       const c = this.add.container(bedX - 62, bedY - 12);
-      c.add(drawHead(this, 0, 0, guest.color, 0.95));
+      // asleep, so whatever they were given at the boutique is off for the night
+      c.add(drawHead(this, 0, 0, guest.color, 0.95, guest.id));
       this.addGuest(guest, c, { w: 60, h: 50, thoughtY: -30 });
       this.dyn(drawSleepZs(this, bedX - 26, bedY - 34));
       return;
@@ -243,7 +244,7 @@ export class RoomScene extends BaseScene {
     const x = width / 2 - 188;
     const y = height * 0.63;
     const c = this.add.container(x, y);
-    c.add(drawPerson(this, 0, 0, guest.color, 1.05));
+    c.add(drawPerson(this, 0, 0, guest.color, 1.05, guest.id, guest.wearing));
     this.addGuest(guest, c, { w: 70, h: 96, thoughtY: -44, barY: 52 });
   }
 

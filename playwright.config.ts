@@ -1,5 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
+// Same variable the dev server reads, so a second checkout can test on its own port.
+const PORT = Number(process.env.PORT) || 3000;
+
 export default defineConfig({
   testDir: './tests',
   // Generous because CI here renders with software WebGL, where Phaser's clamped
@@ -14,7 +17,7 @@ export default defineConfig({
   // nondeterminism in the tests, not infrastructure.
   retries: 0,
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: `http://localhost:${PORT}`,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     viewport: { width: 1200, height: 800 },
@@ -25,7 +28,7 @@ export default defineConfig({
   },
   webServer: {
     command: 'npm run dev',
-    url: 'http://localhost:3000',
+    url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },

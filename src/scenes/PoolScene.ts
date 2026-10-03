@@ -467,10 +467,10 @@ export class PoolScene extends BaseScene {
    * clear of the ice cream stand.
    */
   private buildPoolside(): void {
-    const { height } = this.scale;
+    const { width, height } = this.scale;
     const standing = gameState.guestsAt('pool').filter(g => gameState.guestPhase(g) !== 'happy');
-    const left = 330;
-    const right = 690;
+    const left = width / 2 - 110;
+    const right = width / 2 + 250;
     const step = standing.length > 1 ? Math.min(112, (right - left) / (standing.length - 1)) : 0;
 
     standing.forEach((guest: GuestData, i) => {

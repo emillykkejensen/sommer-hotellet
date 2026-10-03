@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
-import { COLORS, GAME_HEIGHT, GAME_WIDTH } from './config';
+import { COLORS } from './config';
 import { audio } from './helpers/Audio';
 import { gameState } from './state/GameState';
 import { setupNative } from './helpers/Native';
+import { followScreen, stageSize } from './helpers/Stage';
 import { BootScene } from './scenes/BootScene';
 import { MainMenuScene } from './scenes/MainMenuScene';
 import { ProfileScene } from './scenes/ProfileScene';
@@ -18,11 +19,14 @@ import { TaskOverlayScene } from './scenes/TaskOverlayScene';
 import { IceCreamScene } from './scenes/IceCreamScene';
 import { BoutiqueScene } from './scenes/BoutiqueScene';
 
+// The screen's shape, worked out before the first scene lays anything out.
+const stage = stageSize();
+
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'game-container',
-  width: GAME_WIDTH,
-  height: GAME_HEIGHT,
+  width: stage.width,
+  height: stage.height,
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -51,6 +55,7 @@ const config: Phaser.Types.Core.GameConfig = {
 };
 
 const game = new Phaser.Game(config);
+followScreen(game);
 
 // Browsers keep an AudioContext suspended until the player interacts, so build it on the
 // very first tap rather than at load.

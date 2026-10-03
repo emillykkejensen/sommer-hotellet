@@ -1,11 +1,14 @@
-import { COLORS, INK, INK_SOFT, SIZE, text } from '../config';
+import { COLORS, DEPTH, INK, INK_SOFT, SIZE, text } from '../config';
 import { gameState, Mode } from '../state/GameState';
+import { deleteProfile, lastProfileId } from '../state/Profiles';
 import { skillLabel } from '../tasks/picker';
 import { SKILLS, SkillId } from '../tasks/types';
 import { addBackButton, addSceneTitle } from '../ui/Chrome';
+import { playerTag, switchPlayer } from '../ui/Players';
 import { forgetSpeech } from '../objects/Guests';
 import { gradientBand, shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
+import { transition } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
 
 /**
@@ -17,7 +20,13 @@ export class SettingsScene extends BaseScene {
     super({ key: 'SettingsScene' });
   }
 
-  private confirmingReset = false;
+  /** Which of the two destructive buttons is waiting for its second tap, if either. */
+  private confirming: 'reset' | 'delete' | null = null;
+
+  init(): void {
+    // The scene object outlives a visit, so a half-confirmed reset must not greet the next one.
+    this.confirming = null;
+  }
 
   protected buildBackground(): void {
     const { height } = this.scale;
@@ -27,6 +36,12 @@ export class SettingsScene extends BaseScene {
   protected buildChrome(): void {
     addBackButton(this);
     addSceneTitle(this, 'For de voksne');
+
+    // Every setting on this screen belongs to one child, so say which one.
+    const profile = gameState.profile;
+    if (profile) {
+      playerTag(this, profile, this.scale.width - 16, 38, 220, 'right').setDepth(DEPTH.chrome);
+    }
   }
 
   protected buildDynamic(): void {
@@ -35,7 +50,7 @@ export class SettingsScene extends BaseScene {
     this.buildModeChoice(width / 2, 112);
     this.buildToggles(width / 2, 210);
     this.buildProgress(width / 2, 348);
-    this.buildReset(width / 2, this.scale.height - 26);
+    this.buildDangerZone(width / 2, this.scale.height - 26);
   }
 
   /* ------------------------------------------------------------------ mode --- */
@@ -210,36 +225,69 @@ export class SettingsScene extends BaseScene {
 
   /* ----------------------------------------------------------------- reset --- */
 
-  private buildReset(cx: number, y: number): void {
-    const label = this.confirmingReset ? 'Tryk igen for at slette alt' : 'Start forfra';
+  /**
+   * Start forfra and Slet spiller — both only ever about this one child.
+   *
+   * Each needs a second tap within four seconds, the same as reset always has. Arming one
+   * disarms the other, so there is never more than one thing waiting to happen.
+   */
+  private buildDangerZone(cx: number, y: number): void {
+    const profile = gameState.profile;
+    const name = profile?.name ?? 'spilleren';
+
+    this.buildConfirmButton(profile ? cx - 140 : cx, y, 'reset',
+      'Start forfra', `Tryk igen — ${name} starter forfra`, () => {
+        gameState.reset();
+        forgetSpeech();
+        this.refresh();
+      });
+
+    if (!profile) return;
+    this.buildConfirmButton(cx + 140, y, 'delete',
+      'Slet spiller', `Tryk igen for at slette ${name}`, () => {
+        deleteProfile(profile.id);
+        // Back to whoever is left — which is nobody in particular, so the title screen
+        // runs on defaults until a card is picked.
+        switchPlayer(lastProfileId());
+        transition(this, 'MainMenuScene');
+      });
+  }
+
+  private buildConfirmButton(
+    cx: number, y: number,
+    which: 'reset' | 'delete',
+    label: string,
+    confirmLabel: string,
+    onConfirm: () => void
+  ): void {
+    const armed = this.confirming === which;
     const c = this.add.container(cx, y);
 
-    const t = this.add.text(0, 0, label,
-      text(SIZE.label, this.confirmingReset ? '#B9584A' : INK_SOFT, 'bold')).setOrigin(0.5);
+    const t = this.add.text(0, 0, armed ? confirmLabel : label,
+      text(SIZE.label, armed ? '#B9584A' : INK_SOFT, 'bold')).setOrigin(0.5);
     const w = t.width + 40;
 
     const g = this.add.graphics();
     g.fillStyle(COLORS.white, 0.8);
     g.fillRoundedRect(-w / 2, -18, w, 36, 18);
-    g.lineStyle(2, this.confirmingReset ? COLORS.red : COLORS.stoneDeep, 0.45);
+    g.lineStyle(2, armed ? COLORS.red : COLORS.stoneDeep, 0.45);
     g.strokeRoundedRect(-w / 2, -18, w, 36, 18);
 
     c.add([g, t]);
+    c.setData('action', which);
     this.dyn(c);
 
     tappable(this, c, w, 36, () => {
-      if (this.confirmingReset) {
-        gameState.reset();
-        forgetSpeech();
-        this.confirmingReset = false;
-        this.refresh();
+      if (armed) {
+        this.confirming = null;
+        onConfirm();
         return;
       }
-      this.confirmingReset = true;
+      this.confirming = which;
       this.refresh();
       this.time.delayedCall(4000, () => {
-        if (this.scene.isActive() && this.confirmingReset) {
-          this.confirmingReset = false;
+        if (this.scene.isActive() && this.confirming === which) {
+          this.confirming = null;
           this.refresh();
         }
       });

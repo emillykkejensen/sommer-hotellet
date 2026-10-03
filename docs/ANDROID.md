@@ -38,7 +38,7 @@ the conditions rather than by installing anything.
 | **Landscape lock and immersive fullscreen** | The game is 880×550. A status bar across the lobby breaks the picture and a navigation bar sits where a child rests their thumbs. |
 | **The hardware back button** | It means what the on-screen arrow means: room → map → title screen, and only then does it close the app. `addBackButton` registers the target and `helpers/Navigation.ts` answers the question, so the two buttons cannot disagree. During a task it does nothing — the chore is already done and the stars are already owed. |
 | **Keep-awake** | A child reading a task does not touch the screen for half a minute. |
-| **The save mirrored to native storage** | `localStorage` in a WebView is not durable: Android can clear web storage to reclaim space. Every write also goes to SharedPreferences and is read back if web storage comes up empty. |
+| **The saves mirrored to native storage** | `localStorage` in a WebView is not durable: Android can clear web storage to reclaim space. Every write — the player list and each player's save — also goes to SharedPreferences under the same key, and is read back if web storage comes up with no player list. A copy from before profiles (the one save, under `save`) is restored as "Spiller 1". |
 | **A bundled font** | Nunito used to come from Google Fonts. With no network in the app, that would silently fall back to a system face and every label would change width. It is now a 38 KB variable file in `public/fonts/`. |
 
 ## Signing

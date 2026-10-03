@@ -5,6 +5,7 @@ import { gameState } from './state/GameState';
 import { setupNative } from './helpers/Native';
 import { BootScene } from './scenes/BootScene';
 import { MainMenuScene } from './scenes/MainMenuScene';
+import { ProfileScene } from './scenes/ProfileScene';
 import { HotelMapScene } from './scenes/HotelMapScene';
 import { LobbyScene } from './scenes/LobbyScene';
 import { RoomScene } from './scenes/RoomScene';
@@ -32,6 +33,7 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [
     BootScene,
     MainMenuScene,
+    ProfileScene,
     HotelMapScene,
     LobbyScene,
     RoomScene,

@@ -11,7 +11,11 @@ in a random order — and waits at each stop for you to do the job that lets the
 their day. Keep somebody waiting too long and they get grumpy and the star goes unearned:
 nothing is ever taken away, but not everything is given either.
 
-Two modes, set on the grown-up screen:
+Several children can share one tablet: each picks their own card on the title screen and
+gets their own hotel back exactly as they left it.
+
+Two modes, set on the grown-up screen — per child, so a seven-year-old can be in Lær while a
+four-year-old plays:
 
 - **Leg** — free play. Every job pays a star.
 - **Lær** — the same jobs, but a finished job raises a short maths or Danish task, and the
@@ -60,8 +64,8 @@ same web build inside a Capacitor shell, so it plays offline, needs no system pe
 not even internet access — and runs on Android 7 or newer.
 
 The wrapper adds the five things a WebView does not give for free: landscape lock,
-immersive fullscreen, the hardware back button, keep-awake, and a copy of the save in native
-storage. It also has the only working exit — an immersive WebView has no system bars and no
+immersive fullscreen, the hardware back button, keep-awake, and a copy of every player's save
+in native storage. It also has the only working exit — an immersive WebView has no system bars and no
 address bar, so the title screen's **Afslut** button is the way out. All of it is tested in
 a browser by reproducing the conditions, in `tests/native.spec.ts`.
 
@@ -75,6 +79,7 @@ src/
   config.ts              palette, type scale, room themes, shared depths
   main.ts                Phaser game config and scene list
   state/GameState.ts     all persisted progress, and the guest clock; the single source of truth
+  state/Profiles.ts      who the players are, where each one's save lives, migration and restore
   state/Menu.ts          the four recipes, and what a guest orders from them
   state/Shop.ts          the decoration catalogue, and how each piece is drawn
   tasks/
@@ -85,7 +90,8 @@ src/
   scenes/
     BaseScene.ts         the four-layer background/ambient/dynamic/effects pattern
     BootScene.ts         waits for the webfont, then hands over to the menu
-    MainMenuScene.ts     title screen, and the way out of the game
+    MainMenuScene.ts     title screen: a card per player, and the way out of the game
+    ProfileScene.ts      a new player: pick an animal, type a name on the on-screen keyboard
     HotelMapScene.ts     the hub; five areas, the shop, the grown-up screen, waiting badges
     LobbyScene.ts        bell, check-in, check-out, key board
     RoomScene.ts         three rooms, five chores each, and the guest asleep in one
@@ -93,7 +99,7 @@ src/
     PoolScene.ts         loungers, slide, drinks
     GardenScene.ts       flower bed, sandbox, swing, apple tree
     ShopScene.ts         spend stars; also places bought pieces into the scenes
-    SettingsScene.ts     mode, subjects, sound, guest voices, progress, reset
+    SettingsScene.ts     one player's mode, subjects, sound, voices, progress, reset, delete
     TaskOverlayScene.ts  the task card, and its four interaction templates
   helpers/
     Draw.ts              shared shapes: panels, captions, buttons, people, scenery
@@ -105,6 +111,7 @@ src/
     FeedbackEffects.ts   star bursts, hearts, sparkles, toasts
     Guests.ts            what a guest says, their speech bubble and their patience bar
   ui/Chrome.ts           back button, star counter, scene titles
+  ui/Players.ts          the animal faces, the whose-hotel-is-this tag, switching player
 tests/
   game.ts                canvas-driving harness, click targets, task solver, audio spy
   smoke.spec.ts          one test per scene
@@ -112,6 +119,7 @@ tests/
   guests.spec.ts         the guest's day: plans, orders, serving, patience
   sound.spec.ts          the audio contract
   native.spec.ts         the conditions the Android build runs under
+  profiles.spec.ts       players: creating, switching, resuming, deleting, migrating, restoring
   tasks.spec.ts          every factory generates an answerable task
 ```
 
@@ -175,9 +183,9 @@ scan a screen and see what is left without reading a word of Danish.
 
 ### State and rewards
 
-All progress lives in `src/state/GameState.ts` and is persisted to `localStorage` under
-`sommer-hotellet-save` with a `version` field. Mutators that represent a one-time
-achievement return a boolean:
+All progress lives in `src/state/GameState.ts` and is persisted to `localStorage` under the
+active player's key, `sommer-hotellet-save:<id>`, with a `version` field (see
+[Profiles](#profiles) below). Mutators that represent a one-time achievement return a boolean:
 
 ```ts
 if (!gameState.layTowel(i)) return;   // already done — no reward
@@ -187,7 +195,60 @@ award(this);                          // grants the star and animates the counte
 Rewards are granted by the state transition, never by the tap, so nothing can be farmed
 by tapping the same object repeatedly.
 
-`gameState.reset()` clears everything; it is wired to "Start forfra" on the grown-up screen.
+`gameState.reset()` clears the active player's hotel and nobody else's; it is wired to
+"Start forfra" on the grown-up screen.
+
+### Profiles
+
+Several children share one tablet, and a hotel that the youngest can wreck or the eldest can
+finish for everyone is not much of a game. So the title screen asks **Hvem spiller?** and
+shows a card per player — an animal face, a name, a star count — and each card opens that
+child's own hotel exactly as they left it. Up to six players, which is a full row of cards.
+
+```
+sommer-hotellet-profiles        { version: 1, profiles: [{ id, name, avatar }], last }
+sommer-hotellet-save:<id>       one player's hotel, in exactly the save format above
+```
+
+Each player's save is its **own key** rather than an entry inside the index. The save format
+did not have to change at all, a write for one child can never clobber another's, and
+deleting a player is removing one key. `GameState` gained `profileId` and `loadProfile(id)`;
+`save()`, `load()` and `reset()` all go to the active player's key, and the guest logic does
+not know players exist.
+
+Every setting is per player, because every setting lives in the save: a parent can put the
+seven-year-old in Lær and leave the four-year-old in Leg, and mute one without the other. The
+grown-up screen says whose settings it is showing, and both of its destructive buttons —
+**Start forfra** and **Slet spiller** — act on that one child only, behind the same two-tap
+confirm.
+
+Before anybody taps a card, the game wears **whoever played last** (`last` in the index), so
+the title screen obeys their sound and music settings. With no players at all it runs on
+defaults and writes nothing — it must not invent a save for a child who does not exist yet.
+Picking the player who is already loaded does not reload them: loading rewinds every guest's
+clock, and a trip to the title screen is not a way to buy patience.
+
+A save from before profiles is **migrated, never dropped**: with no index but the old
+`sommer-hotellet-save` present, it becomes "Spiller 1". The order is copy, write the index,
+then remove the old key, so a failure anywhere leaves the old save in place to migrate on the
+next launch. A child's stars are the one thing this game must not lose.
+
+New players are made in `ProfileScene`: pick one of eight animals (kat, hund, kanin, bjørn,
+ræv, frø, gris, løve — drawn in `ui/Players.ts`, outlined like everything else) and type a
+name on a keyboard drawn on the canvas. Not a DOM input: inside the Android WebView that
+would raise the phone's own keyboard over half a landscape screen, the test harness could not
+drive it, and it would look like a form rather than part of the game. The keys are
+alphabetical — a child looking for the E finds it after the D — and in capitals, which is
+what children learn first; the name comes out written the way names are, "Emil". An empty
+name becomes the lowest free "Spiller N".
+
+On Android every key is mirrored into native storage under the same name. If the WebView
+comes up with no index, `restoreFromMirror()` puts the saves back and then the index — index
+last, so a restore cut short is retried on the next launch rather than leaving somebody with
+an empty hotel — and a phone that last mirrored before profiles (one save, under the old
+native key `save`) is restored and migrated the same way. Deleting or resetting a player
+removes the native copy too, or it would bring the hotel back the next time web storage was
+lost.
 
 ### The guest's day
 
@@ -497,9 +558,16 @@ const { skill } = await game.solveTask();
 await game.expectSave(s => s.skills[skill].correct).toBe(1);
 ```
 
-`Game.openWithSave(page, patch)` seeds a save before the page loads, to reach a state
-without grinding for it, and `Game.guestWaitingAt('pool')` seeds the whole guest-plus-room
-shape for the common case of somebody standing there waiting.
+`Game.open(page)` seeds one player who has not played yet, and `game.start()` taps their card
+on the title screen. `Game.openWithSave(page, patch)` seeds that player's save before the page
+loads, to reach a state without grinding for it, and `Game.guestWaitingAt('pool')` seeds the
+whole guest-plus-room shape for the common case of somebody standing there waiting.
+`game.save()` reads whichever player is active. Seeding happens once per tab, so a test can
+`page.reload()` — closing the game and opening it again — and find what it left behind.
+
+Player cards move with how many players there are, so they are not in `AT`: the harness finds
+them, the avatar discs and the delete key by the data they carry (`game.targets()`,
+`game.tapTarget()`), and keys and buttons by their label.
 
 Patience is the one thing a save cannot seed, because `load()` deliberately rewinds every
 guest's clock. `game.ageGuest(0, 70_000)` reaches a grumpy guest instead by winding the clock
@@ -550,6 +618,8 @@ Not bugs, but worth knowing before picking up the next piece of work.
   twelve on CI. `test.slow()` marks the one test that buys the whole catalogue.
 - **The exit button cannot close a browser tab.** No page can, so on the web it says goodbye
   and offers to carry on; only the Android build actually exits.
+- **Players live on one device.** There are no accounts and nothing syncs between tablets —
+  the app has no network permission, by design. A child moving to a new tablet starts over.
 - **No iOS.** Capacitor would do it, but an IPA needs macOS and a paid Apple account.
 - **The Gradle build is only exercised on CI.** Nothing here builds an APK as part of `npm
   test`, so a change to `android/` is verified by the Android job, not locally.

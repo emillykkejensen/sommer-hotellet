@@ -1,24 +1,39 @@
 import Phaser from 'phaser';
-import { COLORS, DEPTH, FONT, INK, INK_SOFT, LINE, SIZE, text, textOutlined } from '../config';
+import { COLORS, DEPTH, FONT, INK, INK_SOFT, LINE, OUTLINE_CSS, SIZE, text, textOutlined } from '../config';
 import {
-  addBirds, bunting, button, drawBalloon, drawCloud, drawPalm, drawSun, gradientBand,
-  plate, scatterFlowers, shade, shadow,
+  addBirds, bunting, button, drawBalloon, drawCloud, drawPalm, drawStarShape, drawSun,
+  gradientBand, plate, scatterFlowers, shade, shadow, sheen,
 } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
 import { canExit, exitApp } from '../helpers/Native';
-import { dur, popIn, reduceMotion, transition } from '../helpers/Motion';
+import { dur, popIn, pulse, reduceMotion, transition } from '../helpers/Motion';
 import { flatten } from '../helpers/Flatten';
+import { listProfiles, MAX_PROFILES, Profile, starsOf } from '../state/Profiles';
+import { avatarTint, drawAvatar, switchPlayer } from '../ui/Players';
+
+/** Six of these and their gaps fit across the stage with a margin to spare. */
+const CARD_W = 124;
+const CARD_H = 124;
+const CARD_GAP = 14;
+/** The hotel is drawn a size down, so the row of players fits on the grass below it. */
+const HOTEL_SCALE = 0.78;
 
 export class MainMenuScene extends Phaser.Scene {
   constructor() {
     super({ key: 'MainMenuScene' });
   }
 
+  /** Set once a card has been tapped, so a second tap during the fade cannot switch again. */
+  private leaving = false;
+
   create(): void {
     const { width, height } = this.scale;
     this.cameras.main.fadeIn(dur(400));
+    this.leaving = false;
 
-    const horizon = height * 0.68;
+    // Higher than it was, and the hotel a size smaller, to leave the grass free for a row
+    // of player cards.
+    const horizon = height * 0.61;
 
     // Everything that never moves goes into one container and is baked to a single
     // texture. See helpers/Flatten.
@@ -27,8 +42,10 @@ export class MainMenuScene extends Phaser.Scene {
     scenery.add(this.drawHills(horizon));
     scenery.add(gradientBand(this, horizon, height - horizon, COLORS.grassLight, COLORS.grassDeep));
     // Added before the hotel so the string passes behind the building.
-    scenery.add(bunting(this, 62, horizon - 44, width - 62, horizon - 34, 11, 16));
-    scenery.add(this.drawHotel(width / 2, height * 0.52));
+    scenery.add(bunting(this, 62, horizon - 40, width - 62, horizon - 30, 11, 16));
+    // Drawn around the origin and then placed, so it can be scaled as one piece. Its door
+    // mat sits on the horizon.
+    scenery.add(this.drawHotel(0, 0).setScale(HOTEL_SCALE).setPosition(width / 2, horizon - 90 * HOTEL_SCALE));
     scenery.add(scatterFlowers(this, 9, horizon + 24, height - 16, 0.7, 28));
     flatten(this, scenery, DEPTH.background);
 
@@ -43,30 +60,148 @@ export class MainMenuScene extends Phaser.Scene {
       this.tweens.add({ targets: c2, x: '-=130', duration: 18000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     }
 
-    drawPalm(this, 64, horizon + 30, 1.05);
-    drawPalm(this, width - 60, horizon + 38, 1.18);
+    drawPalm(this, 64, horizon + 18, 1.05);
+    drawPalm(this, width - 60, horizon + 26, 1.18);
     drawBalloon(this, 168, 214, COLORS.red, 0.82);
     drawBalloon(this, width - 176, 232, COLORS.teal, 0.74);
 
     this.addTitle(width / 2, height * 0.15);
-
-    const play = button(this, width / 2, height * 0.82, 'Spil', COLORS.green,
-      () => transition(this, 'HotelMapScene', 280), 234, 62, SIZE.title);
-    popIn(this, play, 480, 0.5);
-    if (!reduceMotion()) {
-      this.time.delayedCall(880, () => {
-        if (!play.active) return;
-        this.tweens.add({
-          targets: play, scale: 1.04, duration: 1100,
-          yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-        });
-      });
-    }
+    this.addPlayers(horizon);
 
     // There was no way out of the game at all: a browser tab has no back, and the Android
-    // build runs fullscreen with the system bars hidden.
-    button(this, width / 2, height * 0.93, 'Afslut', COLORS.stoneDeep,
-      () => this.leave(), 168, 42, SIZE.label);
+    // build runs fullscreen with the system bars hidden. Top left, where every other screen
+    // keeps its way out, so the bottom of the screen is free for the players.
+    const exitW = 116;
+    button(this, 14 + exitW / 2, 38, 'Afslut', COLORS.stoneDeep,
+      () => this.leave(), exitW, 40, SIZE.label).setDepth(DEPTH.chrome);
+  }
+
+  /* --------------------------------------------------------------- players --- */
+
+  /**
+   * "Hvem spiller?" and a card per player.
+   *
+   * This replaced a single "Spil" button. Several children share one tablet, and each card
+   * opens that child's own hotel exactly as they left it — so the first thing the game asks
+   * is whose turn it is, with a face to find rather than a name to read.
+   */
+  private addPlayers(horizon: number): void {
+    const { width } = this.scale;
+    const profiles = listProfiles();
+
+    const ask = this.add.text(width / 2, horizon + 32, 'Hvem spiller?',
+      textOutlined(SIZE.title, '#FFFFFF', OUTLINE_CSS, 7)).setOrigin(0.5);
+    popIn(this, ask, 380, 0.6);
+
+    const cards: (Profile | null)[] = [...profiles];
+    if (profiles.length < MAX_PROFILES) cards.push(null);
+
+    const rowW = cards.length * CARD_W + (cards.length - 1) * CARD_GAP;
+    const y = horizon + 32 + 90;
+    cards.forEach((profile, i) => {
+      const x = width / 2 - rowW / 2 + CARD_W / 2 + i * (CARD_W + CARD_GAP);
+      const card = profile ? this.profileCard(x, y, profile) : this.newPlayerCard(x, y);
+      card.setData('slot', i);
+      popIn(this, card, 460 + i * 70, 0.5);
+      // With nobody to pick yet, the one card there is gets the gentle pulse "Spil" had.
+      if (!profile && profiles.length === 0 && !reduceMotion()) {
+        this.time.delayedCall(900, () => card.active && pulse(this, card, 1.05));
+      }
+    });
+  }
+
+  private profileCard(x: number, y: number, profile: Profile): Phaser.GameObjects.Container {
+    const tint = avatarTint(profile.avatar);
+    const { card, face } = this.cardShell(x, y, tint, () => {
+      switchPlayer(profile.id);
+      transition(this, 'HotelMapScene', 280);
+    });
+
+    face.add(drawAvatar(this, profile.avatar, 0, -22, 32));
+
+    const name = this.add.text(0, 24, profile.name, text(SIZE.body + 1, INK, 'bold')).setOrigin(0.5);
+    if (name.width > CARD_W - 16) name.setScale((CARD_W - 16) / name.width);
+    face.add(name);
+
+    // the star count, so a child can see their own hotel's progress before they pick it
+    const stars = this.add.text(0, 46, `${starsOf(profile.id)}`, text(SIZE.label, INK_SOFT, 'bold'))
+      .setOrigin(0, 0.5);
+    const starR = 8;
+    const pairW = starR * 2 + 5 + stars.width;
+    const star = this.add.graphics();
+    drawStarShape(star, -pairW / 2 + starR, 45, starR);
+    stars.setX(-pairW / 2 + starR * 2 + 5);
+    face.add([star, stars]);
+
+    card.setData('profile', profile.id);
+    return card;
+  }
+
+  private newPlayerCard(x: number, y: number): Phaser.GameObjects.Container {
+    const { card, face } = this.cardShell(x, y, COLORS.cream, () => transition(this, 'ProfileScene'));
+
+    const plus = this.add.graphics();
+    plus.fillStyle(shade(COLORS.green, -0.3));
+    plus.fillCircle(0, -20, 30);
+    plus.fillStyle(COLORS.green);
+    plus.fillCircle(0, -22, 30);
+    plus.lineStyle(LINE.base, COLORS.outline);
+    plus.strokeCircle(0, -22, 30);
+    plus.fillStyle(COLORS.white);
+    plus.fillRoundedRect(-4.5, -38, 9, 32, 4.5);
+    plus.fillRoundedRect(-16, -26.5, 32, 9, 4.5);
+    face.add(plus);
+
+    face.add(this.add.text(0, 32, 'Ny spiller', text(SIZE.body + 1, INK, 'bold')).setOrigin(0.5));
+    card.setData('profile', 'new');
+    return card;
+  }
+
+  /**
+   * A card built like the chunky button: a face sitting on a darker lip, which a tap pushes
+   * down rather than merely squashing.
+   */
+  private cardShell(
+    x: number, y: number,
+    tint: number,
+    onPick: () => void
+  ): { card: Phaser.GameObjects.Container; face: Phaser.GameObjects.Container } {
+    const w = CARD_W;
+    const h = CARD_H;
+    const lip = 6;
+    const r = 20;
+    const card = this.add.container(x, y).setDepth(DEPTH.dynamic);
+
+    const base = this.add.graphics();
+    shadow(base, -w / 2, -h / 2, w, h + lip, r, 5, 0.22);
+    plate(base, -w / 2, -h / 2 + lip, w, h, r, shade(tint, -0.25), 1, LINE.thick);
+    card.add(base);
+
+    const face = this.add.container(0, 0);
+    const g = this.add.graphics();
+    plate(g, -w / 2, -h / 2, w, h, r, tint, 1, LINE.thick);
+    sheen(g, -w / 2, -h / 2, w, h, r - 2, 0.3);
+    face.add(g);
+    card.add(face);
+
+    card.setSize(w, h + lip);
+    card.setInteractive({ useHandCursor: true });
+    if (!reduceMotion()) {
+      card.on('pointerover', () => this.tweens.add({ targets: card, scale: 1.05, duration: 130, ease: 'Back.easeOut' }));
+      card.on('pointerout', () => this.tweens.add({ targets: card, scale: 1, duration: 130 }));
+    }
+    card.on('pointerdown', () => {
+      if (this.leaving) return;
+      this.leaving = true;
+      audio.tap();
+      if (reduceMotion()) {
+        onPick();
+        return;
+      }
+      this.tweens.add({ targets: face, y: lip, duration: 70, yoyo: true, ease: 'Quad.easeOut', onComplete: onPick });
+    });
+
+    return { card, face };
   }
 
   /** Two soft humps behind the horizon, so the ground has depth rather than an edge. */

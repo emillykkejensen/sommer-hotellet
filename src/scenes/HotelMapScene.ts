@@ -10,6 +10,7 @@ import { flatten } from '../helpers/Flatten';
 import { audio } from '../helpers/Audio';
 import { GuestAt, gameState } from '../state/GameState';
 import { SHOP_ITEMS } from '../state/Shop';
+import { playerTag } from '../ui/Players';
 
 interface Area {
   label: string;
@@ -85,9 +86,10 @@ export class HotelMapScene extends Phaser.Scene {
 
     // The map is one step in from the title screen, and there was no way back on screen —
     // only Android's hardware button, which a browser and a tablet do not have.
-    addBackButton(this, 'MainMenuScene', 'Forside');
+    const back = addBackButton(this, 'MainMenuScene', 'Forside');
 
-    addSceneTitle(this, 'Sommer Hotellet', COLORS.roof);
+    const title = addSceneTitle(this, 'Sommer Hotellet', COLORS.roof);
+    this.addPlayerTag(back, title);
     addStarCounter(this);
     this.addShopButton();
     this.addSettingsButton();
@@ -162,6 +164,19 @@ export class HotelMapScene extends Phaser.Scene {
     }
 
     return g;
+  }
+
+  /**
+   * Whose hotel this is: the player's animal and name, right beside the way back to the
+   * cards. Two siblings taking turns otherwise have no way to tell their hotels apart.
+   * It fills the gap between the back button and the title, and shrinks a long name to fit.
+   */
+  private addPlayerTag(back: Phaser.GameObjects.Container, title: Phaser.GameObjects.Container): void {
+    const profile = gameState.profile;
+    if (!profile) return;
+    const left = back.x + back.width / 2 + 8;
+    const titleLeft = title.x - (title.width * title.scaleX) / 2;
+    playerTag(this, profile, left, back.y, titleLeft - 8 - left).setDepth(DEPTH.chrome);
   }
 
   /** Entry to the star shop, sitting under the counter it spends from. */

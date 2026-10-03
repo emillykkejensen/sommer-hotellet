@@ -83,7 +83,8 @@ export class ShopScene extends BaseScene {
         this.buildCard(item, startX + col * stepX, 262 + row * (cardH + 16), cardW, cardH);
       });
       this.dyn(this.add.text(width / 2, height - 20,
-        'Tingene dukker op i rummene, når du har købt dem',
+        // "rummene" read as the guest rooms, which are "værelser" everywhere else
+        'Tingene dukker op rundt om i hotellet, når du har købt dem',
         text(SIZE.tiny, INK_SOFT, 'semibold')).setOrigin(0.5));
       return;
     }

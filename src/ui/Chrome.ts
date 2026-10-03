@@ -229,7 +229,7 @@ export function award(scene: Phaser.Scene, count = 1, x?: number, y?: number): v
  * read as slides rather than rooms.
  *
  * The ribbon shrinks to fit the gap between the controls on either side. A long title —
- * "Haven & Legepladsen" is the worst case — otherwise grows its banner straight into the
+ * "Sommer Hotellet" and "Stjernebutikken" are the worst cases — otherwise grows its banner into the
  * sound toggle, and a title that collides with a button is worse than one a few percent
  * smaller.
  */

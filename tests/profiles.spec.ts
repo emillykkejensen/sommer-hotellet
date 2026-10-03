@@ -74,6 +74,13 @@ test('a new player is made on the on-screen keyboard, and their name and animal 
   await game.expectSave(s => s.pool.towels[0]).toBe(true);
   expect((await game.stored(saveKeyFor(id)))?.pool.towels[0]).toBe(true);
 
+  // A towel pays nothing on its own; a guest given a key pays a star.
+  await game.leave();
+  await game.enter('lobby');
+  await game.tap(AT.lobby.bell.x, AT.lobby.bell.y);
+  await game.helpGuest(0, 'Giv nøgle til værelse 1');
+  await game.expectSave(s => s.stars).toBe(1);
+
   // Close the game and open it again.
   await page.reload();
   await game.waitForScene('MainMenuScene');
@@ -114,13 +121,21 @@ test('the new-player screen has a way back, and leaving it creates nobody', asyn
 });
 
 test('two players keep their own stars, settings and hotel, and each picks up where they left off', async ({ page }) => {
-  const game = await Game.openWithStorage(page, Game.players([ALMA, BO]));
+  const game = await Game.openWithStorage(page, {
+    ...Game.players([ALMA, BO]),
+    // somebody at Alma's desk, so she has a guest to earn a star from
+    [saveKeyFor(ALMA.id)]: Game.saveWith({ guests: [Game.guest(0)], nextGuestId: 1 }),
+  });
 
-  // Alma lays one towel.
+  // Alma lays one towel and hands a guest a key.
   await game.pickPlayer('Alma');
   await game.enter('pool');
   await game.tap(AT.pool.lounger1.x, AT.pool.lounger1.y);
   await game.expectSave(s => s.pool.towels).toEqual([true, false, false, false]);
+  await game.leave();
+  await game.enter('lobby');
+  await game.helpGuest(0, 'Giv nøgle til værelse 1');
+  await game.expectSave(s => s.guests[0].checkedIn).toBe(true);
   const almaStars = await game.stars();
   expect(almaStars).toBeGreaterThan(0);
   await game.leave();
@@ -128,7 +143,7 @@ test('two players keep their own stars, settings and hotel, and each picks up wh
   await game.waitForScene('MainMenuScene');
   expect(await cardLabels(game, ALMA.id)).toContain(`${almaStars}`);
 
-  // Bo starts from nothing — none of Alma's stars, none of her towels — lays two of his
+  // Bo starts from nothing — none of Alma's stars, guests or towels — lays two of his
   // own, and switches his hotel to Lær.
   await game.pickPlayer('Bo');
   expect(await game.stars(), 'Bo has not earned anything yet').toBe(0);

@@ -1,14 +1,13 @@
 import Phaser from 'phaser';
-import { COLORS, LINE, SIZE, text } from '../config';
-import { GuestData, gameState, MAX_WAITING_GUESTS } from '../state/GameState';
-import { showHearts, showStarBurst, showToast } from '../objects/FeedbackEffects';
-import { drawPatienceBar, drawSpeechBubble, guestLine, sayOnce } from '../objects/Guests';
-import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
-import { rewardFor } from '../helpers/Reward';
+import { COLORS, DEPTH, LINE, SIZE, text } from '../config';
+import { Destination, GuestData, gameState, MAX_WAITING_GUESTS } from '../state/GameState';
+import { CardAction } from '../objects/Guests';
+import { paintKey } from '../objects/Icons';
+import { addBackButton, addSceneTitle, addStarCounter } from '../ui/Chrome';
 import { placeDecorations } from './ShopScene';
 import { caption, drawPerson, plate, shadow, tappable } from '../helpers/Draw';
 import { audio } from '../helpers/Audio';
-import { reduceMotion } from '../helpers/Motion';
+import { dur, reduceMotion } from '../helpers/Motion';
 import { BaseScene } from './BaseScene';
 
 export class LobbyScene extends BaseScene {
@@ -57,20 +56,26 @@ export class LobbyScene extends BaseScene {
     // around the key board on the right and the star counter above it.
     this.background.add(this.drawSconce(46, 168));
     this.background.add(this.drawSeaPicture(196, 192));
-    this.background.add(this.drawWelcomeSign(474, 176));
+    this.background.add(this.drawWelcomeSign(width / 2 + 34, 176));
   }
 
   /** Scenery that moves under its own power, so it must stay out of the bake. */
   protected buildAmbient(): void {
-    this.amb(this.drawClock(624, 128));
-    this.amb(this.drawCeilingFan(268, 92));
-    this.amb(this.drawCeilingFan(560, 92));
+    const { width } = this.scale;
+    this.amb(this.drawClock(width / 2 + 184, 128));
+    this.amb(this.drawCeilingFan(width / 2 - 172, 92));
+    this.amb(this.drawCeilingFan(width / 2 + 120, 92));
   }
 
   protected buildChrome(): void {
     addBackButton(this);
     addStarCounter(this);
     addSceneTitle(this, 'Lobbyen');
+  }
+
+  /** Guests who are finished with their stay are led back here to check out. */
+  protected serves(): Destination {
+    return 'checkout';
   }
 
   protected buildDynamic(): void {
@@ -83,8 +88,8 @@ export class LobbyScene extends BaseScene {
 
     placeDecorations(this, 'lobby', this.dynamic);
 
-    gameState.getWaitingGuests().forEach((guest, i) => this.buildArrival(guest, i));
-    gameState.guestsAt('checkout').forEach((guest, i) => this.buildDeparture(guest, i));
+    gameState.lobbyGuests().forEach((guest, i) => this.buildGuest(guest, this.arrivalSlot(i)));
+    gameState.guestsAt('checkout').forEach((guest, i) => this.buildGuest(guest, this.departureSlot(i)));
 
     this.buildHint();
   }
@@ -92,6 +97,7 @@ export class LobbyScene extends BaseScene {
   private buildHint(): void {
     const { width, height } = this.scale;
     const waiting = gameState.getWaitingGuests().length;
+    const ready = gameState.lobbyGuests().filter(g => g.checkedIn).length;
     const leaving = gameState.guestsAt('checkout').length;
     const free = gameState.hasFreeRoom();
 
@@ -100,12 +106,14 @@ export class LobbyScene extends BaseScene {
       message = leaving === 1
         ? 'En gæst vil tjekke ud — tryk på dem'
         : `${leaving} gæster vil tjekke ud — tryk på dem`;
+    } else if (ready > 0 && waiting === 0) {
+      message = 'Tryk på gæsten, og vis dem vej';
     } else if (!free && waiting > 0) {
-      message = 'Alle værelser er fyldt — gæsterne skal tjekke ud først';
-    } else if (waiting === 0) {
+      message = 'Alle værelser er optaget — en gæst skal tjekke ud først';
+    } else if (waiting === 0 && ready === 0) {
       message = 'Tryk på klokken for at kalde en gæst';
-    } else if (waiting >= MAX_WAITING_GUESTS) {
-      message = 'Der venter tre gæster — tryk på en for at give dem et værelse';
+    } else if (gameState.lobbyGuests().length >= MAX_WAITING_GUESTS) {
+      message = 'Der er fuldt ved skranken — hjælp gæsterne først';
     } else {
       message = 'Tryk på en gæst for at tjekke dem ind';
     }
@@ -210,7 +218,7 @@ export class LobbyScene extends BaseScene {
     g.fillCircle(0, -28, 5);
     c.add(g);
 
-    const full = gameState.getWaitingGuests().length >= MAX_WAITING_GUESTS;
+    const full = gameState.lobbyGuests().length >= MAX_WAITING_GUESTS;
     c.add(caption(this, 0, -52, full ? 'Klokken hviler' : 'Ring på klokken', full ? 'done' : 'idle'));
     this.dyn(c);
 
@@ -242,7 +250,7 @@ export class LobbyScene extends BaseScene {
 
       const guest = gameState.createGuest();
       if (!guest) return;
-      this.walkGuestIn(guest, gameState.getWaitingGuests().length - 1);
+      this.walkGuestIn(guest, gameState.lobbyGuests().length - 1);
     });
   }
 
@@ -258,7 +266,7 @@ export class LobbyScene extends BaseScene {
   /** Animated arrival, then the same interactive figure the refresh would have drawn. */
   private walkGuestIn(guest: GuestData, index: number): void {
     const slot = this.arrivalSlot(index);
-    const person = drawPerson(this, -60, slot.y, guest.color, 1.25);
+    const person = drawPerson(this, -60, slot.y, guest.color, 1.25, guest.id, guest.wearing);
     this.dyn(person);
 
     this.tweens.add({
@@ -270,81 +278,28 @@ export class LobbyScene extends BaseScene {
     });
   }
 
-  /**
-   * A guest at the desk, and the bubble that says what they want.
-   *
-   * The bubble alternates between two heights so three guests standing side by side can all
-   * be read at once.
-   */
-  private buildGuest(
-    guest: GuestData,
-    slot: { x: number; y: number },
-    row: number,
-    onTap: () => void
-  ): void {
+  /** A guest at the desk: what they want floats over their head; tap them to talk. */
+  private buildGuest(guest: GuestData, slot: { x: number; y: number }): void {
     const c = this.add.container(slot.x, slot.y);
-    c.add(drawPerson(this, 0, 0, guest.color, 1.25));
+    c.add(drawPerson(this, 0, 0, guest.color, 1.25, guest.id, guest.wearing));
     c.add(caption(this, 0, 58, guest.name));
-    this.dyn(c);
-
-    const line = guestLine(guest);
-    sayOnce(guest, line);
-    this.dyn(drawSpeechBubble(this, slot.x, slot.y - 62 - row * 46, line.text, line.tone, 150));
-
-    const bar = drawPatienceBar(this, slot.x, slot.y + 80, guest);
-    this.dyn(bar.object);
-    this.everyFrame(bar.update);
-
-    tappable(this, c, 80, 108, onTap);
+    this.addGuest(guest, c, { w: 80, h: 108, thoughtY: -52, barY: 80 });
   }
 
-  private buildArrival(guest: GuestData, index: number): void {
-    const slot = this.arrivalSlot(index);
-
-    this.buildGuest(guest, slot, index % 2, () => {
-      const result = gameState.checkInGuest(guest.id);
-
-      if (result === null) {
-        showToast(this, slot.x, slot.y - 64, 'Alle rum er fyldt', '#B9584A');
-        return;
-      }
-
-      showToast(this, slot.x, slot.y - 66, `Værelse ${result.room + 1}`, '#4A7F33');
-
-      if (result.late) {
-        // They stood at the desk too long. The key is still theirs; the star is not.
-        showToast(this, slot.x, slot.y - 104, 'De ventede for længe — ingen stjerne', '#B9584A');
-        this.time.delayedCall(400, () => this.refresh());
-        return;
-      }
-
-      showStarBurst(this, slot.x, slot.y - 30);
-      showHearts(this, slot.x, slot.y - 46);
-      rewardFor(this, 'lobby', { after: () => this.refresh() });
-    });
-  }
-
-  private buildDeparture(guest: GuestData, index: number): void {
-    const slot = this.departureSlot(index);
-
-    // Departures take the opposite row to arrivals, so a full desk — three checking in and
-    // three checking out — still reads as six separate bubbles.
-    this.buildGuest(guest, slot, (index + 1) % 2, () => {
-      const result = gameState.checkOutGuest(guest.id);
-      if (result === null) return;
-
-      audio.sparkle();
-      if (result.late) {
-        showToast(this, slot.x, slot.y - 70, 'De ventede for længe — ingen stjerne', '#B9584A');
-      } else {
-        showStarBurst(this, slot.x, slot.y - 30);
-        showHearts(this, slot.x, slot.y - 46);
-        showToast(this, slot.x, slot.y - 70, `${guest.name} siger tak for besøget`, '#4A7F33');
-        // Checking out is not a task: one question per guest is plenty, and the check-in
-        // already asked it.
-        award(this, 2);
-      }
-      this.refresh();
+  /** The key leaves its hook and flies to the guest who has just been given it. */
+  protected animateDelivery(_guest: GuestData, action: CardAction, spot: { x: number; y: number }): void {
+    if (action.kind !== 'checkin' || reduceMotion()) return;
+    const { width, height } = this.scale;
+    const key = this.add.graphics().setPosition(width - 132, height * 0.28).setDepth(DEPTH.effects);
+    paintKey(key, 1.4);
+    this.tweens.add({
+      targets: key,
+      x: spot.x,
+      y: spot.y - 10,
+      angle: 360,
+      duration: dur(520),
+      ease: 'Cubic.easeInOut',
+      onComplete: () => key.destroy(),
     });
   }
 

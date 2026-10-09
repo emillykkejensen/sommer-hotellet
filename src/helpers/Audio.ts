@@ -11,6 +11,16 @@ import { gameState } from '../state/GameState';
  * the first pointer down and every play attempt resumes a context that has drifted back to
  * suspended (which happens when a tab is backgrounded).
  */
+/**
+ * How loud one syllable of guest gibberish peaks.
+ *
+ * A sawtooth through a narrow bandpass throws most of its energy away, so this has to sit
+ * well above the effects' peaks to come out at a similar loudness. At 0.075 the guests were
+ * easy to miss under the music on a phone speaker; this is roughly 7 dB up on that, with
+ * the music and every other effect left exactly where they were.
+ */
+const VOICE_PEAK = 0.17;
+
 class Audio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -377,7 +387,7 @@ class Audio {
       const from = base * steps[Math.floor(Math.random() * steps.length)];
       // the last syllable falls away, the way a sentence ends
       const to = i === count - 1 ? from * 0.78 : from * (0.88 + Math.random() * 0.3);
-      this.syllable(from, at, length, 0.075, to);
+      this.syllable(from, at, length, VOICE_PEAK, to);
       at += length + 0.028 + Math.random() * 0.035;
     }
   }

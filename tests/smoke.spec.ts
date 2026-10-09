@@ -15,7 +15,7 @@ test('menu reaches the hotel map', async ({ page }) => {
   game.expectNoErrors();
 });
 
-test('room chores persist and pay out exactly once', async ({ page }) => {
+test('room chores persist and cannot be repeated', async ({ page }) => {
   const game = await Game.open(page);
   await game.start();
   await game.enter('rooms');
@@ -25,13 +25,12 @@ test('room chores persist and pay out exactly once', async ({ page }) => {
   await game.expectScreen('RoomScene', 'the room must show the bed as made')
     .toContain('Sengen er redt');
 
-  const afterFirst = await game.stars();
-  expect(afterFirst).toBeGreaterThan(0);
+  // Making up a room is preparation: the star comes when a guest has slept in it.
+  expect(await game.stars(), 'housework pays nothing by itself').toBe(0);
 
-  // a finished chore must not pay again
+  // a finished chore stays finished
   await game.tap(AT.room.bed.x, AT.room.bed.y);
-  await game.tap(AT.room.bed.x, AT.room.bed.y);
-  expect(await game.stars()).toBe(afterFirst);
+  await game.expectSave(s => s.rooms[0].bedMade).toBe(true);
 
   await game.tap(AT.room.window.x, AT.room.window.y);
   await game.tap(AT.room.vase.x, AT.room.vase.y);
@@ -45,6 +44,7 @@ test('room chores persist and pay out exactly once', async ({ page }) => {
     towelsFolded: true,
     vacuumed: true,
   });
+  expect(await game.stars(), 'not even a whole room').toBe(0);
   game.expectNoErrors();
 });
 
@@ -69,9 +69,9 @@ test('the kitchen keeps its recipe and cooking puts a dish on the pass', async (
   await game.expectScreen('KitchenScene', 'a full pot offers to be cooked').toContain('Kog suppe');
   await game.tap(AT.kitchen.cook.x, AT.kitchen.cook.y);
 
-  await game.expectSave(s => s.kitchen.ready, 'the dish lands on the pass').toEqual(['Suppe']);
+  await game.expectSave(s => s.kitchen.ready, 'the dish is ready for the tables').toEqual(['Suppe']);
   await game.expectSave(s => s.kitchen.recipe, 'and the pot is empty again').toBe(null);
-  expect(await game.stars(), 'cooking pays').toBeGreaterThan(0);
+  expect(await game.stars(), 'the star is for the guest who eats it, not the pot').toBe(0);
   game.expectNoErrors();
 });
 
@@ -94,7 +94,7 @@ test('the restaurant toggle sticks', async ({ page }) => {
   game.expectNoErrors();
 });
 
-test('pool towels persist per lounger and cannot be farmed', async ({ page }) => {
+test('pool towels persist per lounger and cannot be repeated', async ({ page }) => {
   const game = await Game.open(page);
   await game.start();
   await game.enter('pool');
@@ -107,7 +107,9 @@ test('pool towels persist per lounger and cannot be farmed', async ({ page }) =>
     .toContain('Læg håndklæder på solstolene — 1 af 4');
   const afterOne = await game.stars();
 
-  // the original bug: five taps on one lounger paid five stars
+  // the original bug: five taps on one lounger paid five stars — and now a towel pays
+  // nothing at all until somebody lies on it
+  expect(afterOne).toBe(0);
   await game.tap(AT.pool.lounger1.x, AT.pool.lounger1.y);
   await game.tap(AT.pool.lounger1.x, AT.pool.lounger1.y);
   expect(await game.stars()).toBe(afterOne);
@@ -137,7 +139,7 @@ test('garden watering and sandcastle accumulate', async ({ page }) => {
   game.expectNoErrors();
 });
 
-test('lobby check-in assigns a room, frees the key and starts the guest off', async ({ page }) => {
+test('lobby check-in assigns a room and the guest waits to be shown the way', async ({ page }) => {
   const game = await Game.open(page);
   await game.start();
   await game.enter('lobby');
@@ -150,13 +152,14 @@ test('lobby check-in assigns a room, frees the key and starts the guest off', as
   expect(arrival.plan, 'and turns up with a plan for the day')
     .toEqual(expect.arrayContaining(['pool', 'restaurant', 'room']));
 
-  await game.tap(AT.lobby.guest1.x, AT.lobby.guest1.y);
+  await game.helpGuest(arrival.id, 'Giv nøgle til værelse 1');
   await game.expectSave(s => s.guests[0]?.checkedIn, 'guest checks in').toBe(true);
 
   const save = await game.save();
   expect(save.rooms[0].guestId).toBe(save.guests[0].id);
-  // and they have gone off to the first thing on their list rather than staying at the desk
-  expect(save.guests[0].at).toBe(save.guests[0].plan[0]);
+  // They stay put with their key until the player leads them — nobody walks off alone.
+  expect(save.guests[0].at).toBe('lobby');
+  expect(save.guests[0].done).toBe(true);
   game.expectNoErrors();
 });
 

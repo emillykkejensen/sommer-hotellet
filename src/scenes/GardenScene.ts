@@ -2,8 +2,7 @@ import Phaser from 'phaser';
 import { COLORS, LINE } from '../config';
 import { APPLE_COUNT, FLOWER_COUNT, gameState, SANDCASTLE_STAGES } from '../state/GameState';
 import { showHearts, showSparkle, showStarBurst, showToast } from '../objects/FeedbackEffects';
-import { addBackButton, addSceneTitle, addStarCounter, award } from '../ui/Chrome';
-import { rewardFor } from '../helpers/Reward';
+import { addBackButton, addSceneTitle, addStarCounter } from '../ui/Chrome';
 import { placeDecorations } from './ShopScene';
 import {
   addBirds, caption, drawCloud, drawHead, drawSun, drawTree, gradientBand, paintFlower, shadow, tappable,
@@ -14,6 +13,14 @@ import { BaseScene } from './BaseScene';
 
 const PETALS = [COLORS.pink, COLORS.red, COLORS.yellow, COLORS.purple, COLORS.white];
 
+/**
+ * The garden and playground.
+ *
+ * Nobody stays here, so nothing here pays: stars are what guests give for being looked
+ * after, and there are no guests among the flowers. That is the point of the place — it is
+ * the bit of the hotel a child can simply play in, with the watering and the building and
+ * the swing all still answering every tap.
+ */
 export class GardenScene extends BaseScene {
   private swinging = false;
 
@@ -66,7 +73,7 @@ export class GardenScene extends BaseScene {
   protected buildChrome(): void {
     addBackButton(this);
     addStarCounter(this);
-    addSceneTitle(this, 'Haven & Legepladsen', COLORS.green);
+    addSceneTitle(this, 'Haven', COLORS.green);
   }
 
   protected buildDynamic(): void {
@@ -165,18 +172,14 @@ export class GardenScene extends BaseScene {
       }
 
       const bedDone = gameState.garden.flowers.every(Boolean);
-      // decorative pause so the drops land before the reward
+      // a pause so the drops land before the flower opens
       this.time.delayedCall(dur(320), () => {
-        showStarBurst(this, fx, fy - 20);
-        // One flower is a tap; the whole bed is the job. Only the job asks a question.
-        if (!bedDone) {
-          award(this, 1);
-          this.refresh();
-          return;
+        showStarBurst(this, fx, fy - 20, 3);
+        if (bedDone) {
+          showSparkle(this, 190, fy, 220, 90);
+          showToast(this, 190, fy - 70, 'Hele bedet blomstrer', '#4A7F33');
         }
-        showSparkle(this, 190, fy, 220, 90);
-        showToast(this, 190, fy - 70, 'Hele bedet blomstrer', '#4A7F33');
-        rewardFor(this, 'garden', { base: 2, after: () => this.refresh() });
+        this.refresh();
       });
     });
   }
@@ -248,17 +251,14 @@ export class GardenScene extends BaseScene {
     tappable(this, c, 156, 72, () => {
       if (!gameState.buildSandcastle()) return;
       audio.pop();
-      showStarBurst(this, x, y - 22);
+      showStarBurst(this, x, y - 22, 3);
 
-      if (gameState.garden.sandcastle < SANDCASTLE_STAGES) {
-        award(this, 1);
-        this.refresh();
-        return;
+      if (gameState.garden.sandcastle >= SANDCASTLE_STAGES) {
+        showSparkle(this, x, y - 40, 120, 110);
+        showHearts(this, x, y - 60);
+        showToast(this, x, y - 96, 'Sikke et slot!', '#4A7F33');
       }
-      showSparkle(this, x, y - 40, 120, 110);
-      showHearts(this, x, y - 60);
-      showToast(this, x, y - 96, 'Sikke et slot!', '#4A7F33');
-      rewardFor(this, 'garden', { base: 2, after: () => this.refresh() });
+      this.refresh();
     });
   }
 
@@ -287,7 +287,7 @@ export class GardenScene extends BaseScene {
     seat.fillStyle(COLORS.red);
     seat.fillRoundedRect(-17, 49, 34, 5, 2.5);
     swing.add(seat);
-    swing.add(drawHead(this, 0, 38, COLORS.purple, 0.85));
+    swing.add(drawHead(this, 0, 38, COLORS.purple, 0.85, 2));
     c.add(swing);
 
     c.add(caption(this, 0, 52, 'Sæt gyngen i gang'));
@@ -309,7 +309,6 @@ export class GardenScene extends BaseScene {
           this.swinging = false;
           showHearts(this, x, y - 40);
           showStarBurst(this, x, y - 56, 4);
-          award(this);
         },
       });
 
@@ -368,7 +367,6 @@ export class GardenScene extends BaseScene {
       apple.on('pointerdown', () => {
         if (!gameState.pickApple(i)) return;
         audio.pop();
-        award(this);
 
         // Detach into a world-space container so the fall survives the refresh.
         const falling = this.add.container(x + spot.x, y + spot.y, [
@@ -398,8 +396,6 @@ export class GardenScene extends BaseScene {
         if (gameState.allApplesPicked()) {
           showSparkle(this, x, y - 30, 110, 110);
           showToast(this, x - 40, y - 80, 'Kurven er fuld', '#4A7F33');
-          rewardFor(this, 'garden', { base: 2, after: () => this.refresh() });
-          return;
         }
         this.refresh();
       });

@@ -4,17 +4,24 @@ Et hotelspil for børn — tag imod gæster, lav mad, gør værelserne klar. Ing
 tabe, ingen måde at ødelægge noget.
 
 A hotel game for children (roughly ages 4–8), in Danish. Run the reception, make up the
-rooms, cook in the kitchen, lay towels by the pool and tend the garden.
+rooms, cook in the kitchen, lay towels and make ice creams by the pool, dress your guests up
+in the boutique, and play in the garden.
 
-Guests are the game. Each one checks in, walks a plan of their own — pool, restaurant, room,
-in a random order — and waits at each stop for you to do the job that lets them get on with
-their day. Keep somebody waiting too long and they get grumpy and the star goes unearned:
-nothing is ever taken away, but not everything is given either.
+Guests are the game. Each one checks in with a plan of their own — pool, restaurant, room,
+in a random order — and you lead them from one to the next, doing whatever lets them get on
+with their day at each stop. What a guest wants floats over their head as a picture; tap
+them and a card tells you, with the buttons that help. Keep somebody waiting too long and
+they get grumpy and the star goes unearned: nothing is ever taken away, but not everything
+is given either.
 
-Two modes, set on the grown-up screen:
+Several children can share one tablet: each picks their own card on the title screen and
+gets their own hotel back exactly as they left it.
 
-- **Leg** — free play. Every job pays a star.
-- **Lær** — the same jobs, but a finished job raises a short maths or Danish task, and the
+Two modes, set on the grown-up screen — per child, so a seven-year-old can be in Lær while a
+four-year-old plays:
+
+- **Leg** — free play. Every guest you look after pays stars.
+- **Lær** — the same, but looking after a guest raises a short maths or Danish task, and the
   task pays the stars. Stars buy things for the hotel, which is what makes counting to seven
   worth doing.
 
@@ -43,14 +50,30 @@ so the game makes no network requests at all once it is loaded. A test asserts t
 
 ### Scale
 
-`GAME_WIDTH`/`GAME_HEIGHT` in `config.ts` are 880×550, and the canvas is scaled to FIT
-whatever it is given — so those two numbers are really a zoom control: a smaller logical
-stage means every drawn shape and every label covers more of the screen. They were 960×600,
-which put the body text at around 3 mm tall on a phone held at arm's length by a
-five-year-old. Shrinking the stage ~9% and putting the `SIZE` type scale up ~12% on top of it
-lands everything about a fifth bigger without redrawing a single shape.
+`GAME_WIDTH`/`GAME_HEIGHT` in `config.ts` are 880×550, and they are really a zoom control:
+a smaller logical stage means every drawn shape and every label covers more of the screen.
+They were 960×600, which put the body text at around 3 mm tall on a phone held at arm's
+length by a five-year-old. Shrinking the stage ~9% and putting the `SIZE` type scale up ~12%
+on top of it lands everything about a fifth bigger without redrawing a single shape.
 
-Keep the 1.6 aspect ratio if you change them, or the game letterboxes instead of zooming.
+They are the **smallest** the stage gets, not its size. A fixed 880×550 scaled to fit left a
+band of empty sky down both sides of a phone, which is about twice as wide as it is tall. So
+`main.ts` gives the stage the screen's own shape before the game starts (`stageSize()`): the
+height stays 550 and the width grows on anything wider than 1.6 — a phone gets roughly
+1,190 — and on anything squarer, a tablet, the width stays 880 and the height grows instead.
+Both stop at `MAX_STAGE_WIDTH`/`MAX_STAGE_HEIGHT`, past which the game letterboxes rather than
+stretch a scene into a strip. Turning the screen or resizing the window re-runs it, resizes
+the stage and restarts whatever scene is up — except while a task is open, which waits.
+
+That works because scenes lay themselves out from `this.scale.width`/`height` and never from
+the two constants: scenery is drawn across the whole width, chrome hangs off the edges, and
+the things that matter are placed from the centre. Keep it that way when adding to a scene —
+a position written as a bare number assumes the 880 stage, and on a phone it ends up on the
+wrong side of a gap. The safe-area insets are padding on `<body>`, so nothing lands under a
+camera cut-out.
+
+The tests run at exactly 1.6 (a 1200×750 viewport), where the stage is 880×550 and every
+target in `AT` holds; `tests/screen.spec.ts` covers a phone and a tablet.
 
 ## On a phone
 
@@ -60,8 +83,8 @@ same web build inside a Capacitor shell, so it plays offline, needs no system pe
 not even internet access — and runs on Android 7 or newer.
 
 The wrapper adds the five things a WebView does not give for free: landscape lock,
-immersive fullscreen, the hardware back button, keep-awake, and a copy of the save in native
-storage. It also has the only working exit — an immersive WebView has no system bars and no
+immersive fullscreen, the hardware back button, keep-awake, and a copy of every player's save
+in native storage. It also has the only working exit — an immersive WebView has no system bars and no
 address bar, so the title screen's **Afslut** button is the way out. All of it is tested in
 a browser by reproducing the conditions, in `tests/native.spec.ts`.
 
@@ -75,7 +98,9 @@ src/
   config.ts              palette, type scale, room themes, shared depths
   main.ts                Phaser game config and scene list
   state/GameState.ts     all persisted progress, and the guest clock; the single source of truth
+  state/Profiles.ts      who the players are, where each one's save lives, migration and restore
   state/Menu.ts          the four recipes, and what a guest orders from them
+  state/Extras.ts        ice creams and clothes: their parts, their names, their keys
   state/Shop.ts          the decoration catalogue, and how each piece is drawn
   tasks/
     types.ts             Task, TaskBody, Figure, the skill list
@@ -85,15 +110,19 @@ src/
   scenes/
     BaseScene.ts         the four-layer background/ambient/dynamic/effects pattern
     BootScene.ts         waits for the webfont, then hands over to the menu
-    MainMenuScene.ts     title screen, and the way out of the game
-    HotelMapScene.ts     the hub; five areas, the shop, the grown-up screen, waiting badges
+    MainMenuScene.ts     title screen: a card per player, and the way out of the game
+    ProfileScene.ts      a new player: pick an animal, type a name on the on-screen keyboard
+    HotelMapScene.ts     the hub; the areas, the shop, the grown-up screen, badges, followers
     LobbyScene.ts        bell, check-in, check-out, key board
     RoomScene.ts         three rooms, five chores each, and the guest asleep in one
-    KitchenScene.ts      recipes, the stove, the pass — and the restaurant, where you serve
-    PoolScene.ts         loungers, slide, drinks
-    GardenScene.ts       flower bed, sandbox, swing, apple tree
+    KitchenScene.ts      recipes, the stove, the dishes ready — and the restaurant
+    PoolScene.ts         loungers, slide, the ice cream stand
+    GardenScene.ts       flower bed, sandbox, swing, apple tree — play, no stars
+    MakerScene.ts        the shared layout for building something for a guest
+    IceCreamScene.ts     the ice cream stand: cone or cup, flavour, topping
+    BoutiqueScene.ts     the boutique: a hat, a cap, sunglasses or a crown, in a colour
     ShopScene.ts         spend stars; also places bought pieces into the scenes
-    SettingsScene.ts     mode, subjects, sound, guest voices, progress, reset
+    SettingsScene.ts     one player's mode, subjects, sound, voices, progress, reset, delete
     TaskOverlayScene.ts  the task card, and its four interaction templates
   helpers/
     Draw.ts              shared shapes: panels, captions, buttons, people, scenery
@@ -103,15 +132,19 @@ src/
     Audio.ts             synthesised sound effects, music and guest gibberish
   objects/
     FeedbackEffects.ts   star bursts, hearts, sparkles, toasts
-    Guests.ts            what a guest says, their speech bubble and their patience bar
+    Guests.ts            what a guest says and wants: lines, thought bubbles, the card model
+    GuestCard.ts         the card at the bottom of the screen
+    Icons.ts             one picture per place and per thing, used everywhere
   ui/Chrome.ts           back button, star counter, scene titles
+  ui/Players.ts          the animal faces, the whose-hotel-is-this tag, switching player
 tests/
   game.ts                canvas-driving harness, click targets, task solver, audio spy
   smoke.spec.ts          one test per scene
   learn.spec.ts          the shop and the task layer
-  guests.spec.ts         the guest's day: plans, orders, serving, patience
+  guests.spec.ts         the guest's day: the card, leading, serving, patience, ice, clothes
   sound.spec.ts          the audio contract
   native.spec.ts         the conditions the Android build runs under
+  profiles.spec.ts       players: creating, switching, resuming, deleting, migrating, restoring
   tasks.spec.ts          every factory generates an answerable task
 ```
 
@@ -173,21 +206,83 @@ fit the gap between the controls on either side. Captions are outlined tags carr
 state dot — amber for "this one still wants you", a green tick for done — so a child can
 scan a screen and see what is left without reading a word of Danish.
 
+People are drawn like picture-book children — a big round head on a small tapered body —
+rather than the square torso with arms out to the side they started as, which read as a
+block. Each guest's colour stays their shirt or dress, because that colour is how a guest is
+recognised from scene to scene; everything else — skin, hair, hair style, glasses, outfit —
+comes from a seed, the guest's id, so a lobby of three is three people and the same guest
+looks the same in every room. Whatever the boutique gives them is drawn on top, and takes
+the place of the sun hat or glasses they came with.
+
 ### State and rewards
 
-All progress lives in `src/state/GameState.ts` and is persisted to `localStorage` under
-`sommer-hotellet-save` with a `version` field. Mutators that represent a one-time
-achievement return a boolean:
+All progress lives in `src/state/GameState.ts` and is persisted to `localStorage` under the
+active player's key, `sommer-hotellet-save:<id>`, with a `version` field (see
+[Profiles](#profiles) below). Mutators that represent a one-time achievement return a boolean:
 
 ```ts
-if (!gameState.layTowel(i)) return;   // already done — no reward
-award(this);                          // grants the star and animates the counter
+const result = gameState.serveTo(guest.id, 'Suppe');
+if (!result) return;                  // nothing to serve — no reward
+award(this, 1, spot.x, spot.y);       // grants the star and flies it to the counter
 ```
 
 Rewards are granted by the state transition, never by the tap, so nothing can be farmed
 by tapping the same object repeatedly.
 
-`gameState.reset()` clears everything; it is wired to "Start forfra" on the grown-up screen.
+`gameState.reset()` clears the active player's hotel and nobody else's; it is wired to
+"Start forfra" on the grown-up screen.
+
+### Profiles
+
+Several children share one tablet, and a hotel that the youngest can wreck or the eldest can
+finish for everyone is not much of a game. So the title screen asks **Hvem spiller?** and
+shows a card per player — an animal face, a name, a star count — and each card opens that
+child's own hotel exactly as they left it. Up to six players, which is a full row of cards.
+
+```
+sommer-hotellet-profiles        { version: 1, profiles: [{ id, name, avatar }], last }
+sommer-hotellet-save:<id>       one player's hotel, in exactly the save format above
+```
+
+Each player's save is its **own key** rather than an entry inside the index. The save format
+did not have to change at all, a write for one child can never clobber another's, and
+deleting a player is removing one key. `GameState` gained `profileId` and `loadProfile(id)`;
+`save()`, `load()` and `reset()` all go to the active player's key, and the guest logic does
+not know players exist.
+
+Every setting is per player, because every setting lives in the save: a parent can put the
+seven-year-old in Lær and leave the four-year-old in Leg, and mute one without the other. The
+grown-up screen says whose settings it is showing, and both of its destructive buttons —
+**Start forfra** and **Slet spiller** — act on that one child only, behind the same two-tap
+confirm.
+
+Before anybody taps a card, the game wears **whoever played last** (`last` in the index), so
+the title screen obeys their sound and music settings. With no players at all it runs on
+defaults and writes nothing — it must not invent a save for a child who does not exist yet.
+Picking the player who is already loaded does not reload them: loading rewinds every guest's
+clock, and a trip to the title screen is not a way to buy patience.
+
+A save from before profiles is **migrated, never dropped**: with no index but the old
+`sommer-hotellet-save` present, it becomes "Spiller 1". The order is copy, write the index,
+then remove the old key, so a failure anywhere leaves the old save in place to migrate on the
+next launch. A child's stars are the one thing this game must not lose.
+
+New players are made in `ProfileScene`: pick one of eight animals (kat, hund, kanin, bjørn,
+ræv, frø, gris, løve — drawn in `ui/Players.ts`, outlined like everything else) and type a
+name on a keyboard drawn on the canvas. Not a DOM input: inside the Android WebView that
+would raise the phone's own keyboard over half a landscape screen, the test harness could not
+drive it, and it would look like a form rather than part of the game. The keys are
+alphabetical — a child looking for the E finds it after the D — and in capitals, which is
+what children learn first; the name comes out written the way names are, "Emil". An empty
+name becomes the lowest free "Spiller N".
+
+On Android every key is mirrored into native storage under the same name. If the WebView
+comes up with no index, `restoreFromMirror()` puts the saves back and then the index — index
+last, so a restore cut short is retried on the next launch rather than leaving somebody with
+an empty hotel — and a phone that last mirrored before profiles (one save, under the old
+native key `save`) is restored and migrated the same way. Deleting or resetting a player
+removes the native copy too, or it would bring the hotel back the next time web storage was
+lost.
 
 ### The guest's day
 
@@ -196,51 +291,101 @@ A guest is a small state machine, and `GameState` owns all of it.
 ```ts
 plan: ['restaurant', 'room', 'pool']   // shuffled per guest
 step: 0                                // how far along
-at:   'restaurant'                     // where they are standing
+at:   'restaurant'                     // where they are — or 'following' the player
+heading: null                          // while following: where they want to be taken
 since: 1690000000000                   // when they got there and started waiting
 settledAt: null                        // when what they wanted arrived
+done: false                            // finished here, waiting to be led on
 gaveUp: false                          // patience spent, star forfeit
 order: ['Suppe', 'Is']                 // what they asked for at the table
 served: ['Suppe']                      // what has been carried out
+extras: ['is:vaffel:jordbaer:drys']    // an ice cream or something to wear, asked for here
+wearing: 'toej:solhat:blaa'            // what the boutique gave them, kept on all stay
 ```
 
-Each stop has one need, and each need is met by a player action in a different scene:
+**Guests never move by themselves.** They used to walk off to their next stop the moment
+they had finished, which meant a child who could not read the bubble saying "så skal jeg i
+poolen" simply watched somebody vanish. Now a finished guest stays put, shows a picture of
+where they want to go, and waits for the player to tap them and press **Følg med mig**. From
+then on they *follow*: a face in a row under the back button, carrying the picture of their
+destination, and on the map standing beside that place's sign. Walking into the right place
+hands them over (`dropOff()`); walking into the wrong one, they say where they actually
+wanted to go and keep following. The restaurant is the one place that can be full, and a
+guest who finds every table taken keeps following too.
 
-| Stop | What they want | What the player does | Where |
+**What a guest wants is a picture first, words second.** Over their head is a thought bubble
+— a key, a lounger, a plate, a bed, an ice cream, a hat, or a place with an arrow when they
+want to move on. Tapping the guest (or the bubble) opens the **card** at the bottom of the
+screen: their face, what they say, what they want with a tick on what has arrived, and a
+button for each thing that can be done for them right now. A button only appears when it
+would work — a child never presses "Server suppe" to be told there is no soup; the card says
+where the soup comes from instead. The card is drawn from `guestCard()`, a plain model of
+lines, wants and actions, so what a button does lives in `BaseScene.runAction()` and not in
+the drawing. It stays open while the player works — lay a towel and the card grows a "Giv
+solstol" button — and closes on a tap on empty floor.
+
+| Where | What they want | Prepared by | Handed over from the card |
 | --- | --- | --- | --- |
-| — | a key | tap the guest at the desk | Lobbyen |
-| `pool` | a lounger with a towel on it | lay a towel | Poolen |
-| `restaurant` | everything on their order | cook it, then carry it out | Køkkenet → Restauranten |
-| `room` | a room that is actually made up | all five chores | Værelserne |
-| — | to pay and go home | tap them at the desk | Lobbyen |
+| lobby | a key | — | Giv nøgle til værelse N |
+| `pool` | a lounger, maybe an ice cream, maybe a hat | towels; the ice cream stand; the boutique | Giv solstol, Giv isen, Giv solhatten |
+| `restaurant` | everything on their order | cooking in the kitchen | Server suppe … |
+| `room` | their bed | all five chores | Put i seng |
+| any, when done | to be shown the way | — | Følg med mig |
+| lobby | to pay and go home | — | Tjek ud |
 
-Waiting has three phases, and they are the whole difficulty curve:
+Waiting has four phases, and they are the whole difficulty curve:
 
-- **waiting** — up to a minute (`PATIENCE_MS`; a restaurant order buys 25 s per extra dish,
-  because three dishes is three trips through the kitchen). Do the job inside this and it
-  pays.
-- **impatient** — 30 s more. The bubble turns pink and shakes, the patience bar empties, and
-  the job still has to be done — it just no longer pays. This is the consequence, and it is
+- **waiting** — up to a minute (`PATIENCE_MS`; every dish after the first and every extra
+  buys 25 s more, because three dishes is three trips through the kitchen). Do the job inside
+  this and it pays.
+- **impatient** — past it. The bubble turns pink and shakes, the patience bar empties, and the
+  job still has to be done — it just no longer pays. This is the consequence, and it is
   deliberately not a punishment: nothing is taken away, a star is simply not earned.
-- **happy** — 12 s of swimming, eating or sleeping, then they move on to the next stop.
+- **happy** — 12 s of swimming, eating or sleeping.
+- **ready** — done, and waiting to be led on. There is no clock on this one.
 
-A guest nobody helps **gives up on that stop and moves on** rather than blocking the hotel.
-That matters: a consequence that can deadlock the game is a bug, not a difficulty setting.
+A guest nobody helps **gives up on that stop** after a further 30 s — and then waits, grumpy,
+to be led to the next one. Two rules meet there: a consequence that can deadlock the game is a
+bug, not a difficulty setting, and a guest who disappears is exactly the confusion leading
+was brought in to end.
 
-The same rule applies to the kitchen. A cooked dish goes on the *pass* (`kitchen.ready`) and
-stays there until somebody carries it out, and the pass holds six — so cooking six bowls of
-soup nobody ordered would otherwise stop the stove until a guest happened to want soup.
-Tapping a plate on the pass scrapes it, which pays nothing and costs nothing.
+The same rule applies to everything made for guests. A cooked dish waits on the shelf by the
+stove (`kitchen.ready`, room for six), an ice on the stand's counter (three), a hat on the
+boutique's shelf (four), until somebody hands it over — and tapping one throws it away, which
+pays nothing and costs nothing, so a kitchen full of soup nobody ordered is never a dead end.
+A lounger's towel goes with the guest when they leave, the way a room needs making up again
+after check-out.
 
 `gameState.tickGuests()` moves every guest's clock on. `BaseScene` calls it twice a second
 and only calls `refresh()` when it reports something actually changed, so guests keep living
 their day while the player is in another room without a scene rebuilding at 2 Hz for nothing.
-`HotelMapScene` runs the same tick and turns it into a red badge over whichever area has
-somebody waiting — otherwise finding the guest who needs you means walking all five rooms.
+Time can make a guest impatient, finish their swim, or make them give up — but it never
+moves them. `HotelMapScene` runs the same tick and turns it into a red badge over whichever
+area has somebody who needs the player.
 
 Patience is wall-clock time, so `load()` deliberately rewinds every guest's `since` to now.
 Closing the game is not a mistake a child should be charged for, and a save reopened the next
 morning would otherwise have the whole hotel storming out on the first tick.
+
+### Ice creams and clothes
+
+Two more things to build, both working the way cooking does: pick the parts, watch the thing
+take shape, put it on the counter, hand it over from the guest's card.
+
+- **The ice cream stand** at the pool (`IceCreamScene`). Cone or cup, one of four flavours,
+  sprinkles or a cherry: sixteen ices, which is enough that matching the guest's picture is
+  the job rather than luck. Half of all guests at the pool want one.
+- **The boutique** (`BoutiqueScene`), bought in the star shop for 16 stars, which adds it to
+  the map. A sun hat, a cap, sunglasses or a flower crown, in one of five colours. Once it is
+  open, a guest at the pool sometimes asks for something — and keeps it on for the rest of
+  their stay, so the hotel fills up with guests wearing the child's work.
+
+Both share `MakerScene`: what guests are waiting for on the left, as pictures to copy; a row
+per choice in the middle, each option drawn as the thing would turn out with what has been
+picked so far; the thing itself big on the right, and the counter under it. Items are string
+keys (`is:vaffel:jordbaer:drys`, `toej:solhat:roed`) defined in `state/Extras.ts`, which
+also holds the Danish — including the adjective agreement, so it is "en rød solhat" but
+"røde solbriller".
 
 ### Stars, ranks and the flight to the counter
 
@@ -257,34 +402,45 @@ celebration that clears itself.
 Confetti and the big praise pop are reserved for finishing a whole job — a complete room,
 every lounger, the finished sandcastle — so they stay a treat rather than wallpaper.
 
+**Stars come only from guests.** A key handed over, a dish served, a swim or a night's sleep
+they have had, an ice cream or a hat, a bill paid. Laying the towel, cooking the soup and
+making the bed pay nothing until somebody uses them, and the garden pays nothing at all —
+nobody stays there; it is the bit of the hotel that is simply for playing in. Stars for
+housework had the child earning from chores rather than from the people the chores are for,
+and a swing that paid a star a push could be farmed by anybody with a finger.
+
+A swim and a night's sleep are paid when they are *over* — when the guest is led on — rather
+than when the lounger or the bed is handed over, because "they had a good night" is the
+thing being rewarded.
+
 ### The reward path
 
-Every action in the game pays out through one function, `helpers/Reward.ts`:
+Every star in the game is paid from one place, `BaseScene.runAction()`, and through one
+function, `helpers/Reward.ts`:
 
 ```ts
-rewardFor(this, 'garden', { after: () => this.refresh() });
+rewardFor(this, 'rooms', { base: 2, from: spot, after: () => this.refresh() });
 ```
 
-In Leg mode that awards a star. In Lær mode the action has *already* happened — the flower
-is watered, the bed is made — and then a task appears, phrased in the world, and pays the
-stars. `after` runs once the reward settles, so the scene refreshes at the right moment
-either way.
+In Leg mode that awards the stars. In Lær mode the thing has *already* happened — the guest
+has their key, their dinner, their night's sleep — and then a task appears, phrased in the
+world, and pays the stars. `after` runs once the reward settles, so the scene refreshes at
+the right moment either way.
 
-**A task is raised by a finished job, never by a tap.** Every chore used to raise one, which
-meant making up a single room asked five questions and cooking one bowl of soup asked three —
-the child was doing arithmetic to fetch a carrot. Taps pay a plain star; jobs ask:
+**A task is raised by something finished for a guest, never by a tap.** Every chore used to
+raise one, which meant making up a single room asked five questions and cooking one bowl of
+soup asked three — the child was doing arithmetic to fetch a carrot.
 
-| Job | Task? |
+| For a guest | Task? |
 | --- | --- |
-| check a guest in | yes |
-| cook a dish (the whole recipe, at the stove) | yes |
-| finish a room a guest is waiting to sleep in | yes |
-| lay the towel that seats a waiting guest | yes |
-| finish the flower bed, the sandcastle, the apple basket | yes |
-| one chore, one ingredient, one towel, one apple | no — a plain star |
-| carry a dish out to the guest who ordered it | no — a plain star, and the payoff |
+| a key handed over | yes |
+| a whole order served | yes |
+| led on after a swim | yes |
+| led on after a night's sleep | yes |
+| one dish of several, an ice cream, a hat, a bill paid | no — a plain star |
+| a towel, a dish cooked, a chore, anything in the garden | nothing |
 
-That is roughly one question per guest per stop, against one per tap before.
+That is roughly one question per guest per stop.
 
 ### Tasks
 
@@ -427,7 +583,13 @@ reaches `speechSynthesis` at all.
 Lines are spoken **once per situation**, not once per redraw: `refresh()` rebuilds every
 guest whenever anything changes, and `objects/Guests.ts` keys the sound on
 `guest:place:step:phase` so a redraw is silent. Lines also queue — walking into a lobby with
-three guests in it plays three babbles in turn rather than one noise.
+three guests in it plays three babbles in turn rather than one noise. A guest also answers
+when tapped — their card opening is them talking to you — and a follower taken to the wrong
+place grumbles where they wanted to go.
+
+The babble peaks at `VOICE_PEAK` (0.17), about 7 dB above where it started: a sawtooth
+through a narrow bandpass throws most of its energy away, and at the old level the guests
+were easy to miss under the music on a phone speaker.
 
 ### The shop
 
@@ -444,9 +606,10 @@ function renders the shop preview and the real thing:
 Scenes call `placeDecorations(this, 'garden', this.dynamic)` in their `buildDynamic()`, so
 bought pieces come back on every refresh with no per-scene bookkeeping.
 
-**Hotellet** are upgrades that change the game rather than dress it: four extra room themes
-(22–34 stars), a fourth room (32), and a second floor with two more (48). Together with
-fourteen decorations that is twenty things to save for, priced 6 to 48.
+**Hotellet** are upgrades that change the game rather than dress it: the boutique (16 stars,
+a new place on the map), four extra room themes (22–34), a fourth room (32), and a second
+floor with two more (48). Together with fourteen decorations that is twenty-one things to
+save for, priced 6 to 48.
 
 Room capacity is no longer a constant. `BASE_ROOM_COUNT` is what the hotel ships with,
 `MAX_ROOM_COUNT` the ceiling, and `gameState.roomCount` what it actually has; the room tabs
@@ -487,23 +650,46 @@ Click targets are expressed in **game coordinates** in `tests/game.ts`, read off
 different viewport nor a change to the logical stage size moves every target. When you move
 something on screen, update its entry in `AT`.
 
+Guests are found by the id they carry rather than by coordinates — they stand wherever the
+scene puts them — and their card is driven by its button labels:
+
+```ts
+await game.tapGuest(0);
+await game.expectCard().toContain('Suppe og is, tak!');
+await game.tapCardAction('Server suppe');
+// or both at once:
+await game.helpGuest(0, 'Følg med mig');
+```
+
 The harness can also drive a task end to end — it reads the live answer off the scene and
 taps the right target, so `learn.spec.ts` can assert on what a solved task pays:
 
 ```ts
-await game.tap(AT.garden.wateringCan.x, AT.garden.wateringCan.y);
+await game.helpGuest(0, 'Giv nøgle til værelse 1');
 expect(await game.waitForTask()).toBe(true);
 const { skill } = await game.solveTask();
 await game.expectSave(s => s.skills[skill].correct).toBe(1);
 ```
 
-`Game.openWithSave(page, patch)` seeds a save before the page loads, to reach a state
-without grinding for it, and `Game.guestWaitingAt('pool')` seeds the whole guest-plus-room
-shape for the common case of somebody standing there waiting.
+`Game.open(page)` seeds one player who has not played yet, and `game.start()` taps their card
+on the title screen. `Game.openWithSave(page, patch)` seeds that player's save before the page
+loads, to reach a state without grinding for it, and `Game.guestWaitingAt('pool')` seeds the
+whole guest-plus-room shape for the common case of somebody standing there waiting.
+`Game.guestDoneAt('room')` seeds a guest who has slept and wants leading on — the moment that
+pays, and in Lær mode asks — and `Game.seatedGuests(5)` fills the restaurant with guests one
+ready dish from a finished order, which is the repeatable way to raise several tasks.
+`game.save()` reads whichever player is active. Seeding happens once per `open`, not on every
+load, so a test can `page.reload()` — closing the game and opening it again — and find what
+it left behind.
+
+Player cards move with how many players there are, so they are not in `AT`: the harness finds
+them, the avatar discs and the delete key by the data they carry (`game.targets()`,
+`game.tapTarget()`), and keys and buttons by their label.
 
 Patience is the one thing a save cannot seed, because `load()` deliberately rewinds every
 guest's clock. `game.ageGuest(0, 70_000)` reaches a grumpy guest instead by winding the clock
-back on the live `GameState` — the dev server hands the page the very same module singleton
+back on the live `GameState`, and `game.finishEnjoying(0)` does the same to a swim or a
+night's sleep — the dev server hands the page the very same module singleton
 the game is running on, so this drives the real code path rather than a copy of it.
 
 The task factories are pure generators, so `tasks.spec.ts` skips the UI entirely and pulls
@@ -550,6 +736,8 @@ Not bugs, but worth knowing before picking up the next piece of work.
   twelve on CI. `test.slow()` marks the one test that buys the whole catalogue.
 - **The exit button cannot close a browser tab.** No page can, so on the web it says goodbye
   and offers to carry on; only the Android build actually exits.
+- **Players live on one device.** There are no accounts and nothing syncs between tablets —
+  the app has no network permission, by design. A child moving to a new tablet starts over.
 - **No iOS.** Capacitor would do it, but an IPA needs macOS and a paid Apple account.
 - **The Gradle build is only exercised on CI.** Nothing here builds an APK as part of `npm
   test`, so a change to `android/` is verified by the Android job, not locally.

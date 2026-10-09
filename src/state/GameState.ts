@@ -1,6 +1,8 @@
 import { Level } from '../tasks/types';
-import { mirrorSave } from '../helpers/Native';
+import { mirror, unmirror } from '../helpers/Native';
+import { Profile, findProfile, lastProfileId, migrateLegacySave, saveKeyFor, setLastProfile } from './Profiles';
 import { randomOrder } from './Menu';
+import { isGarment, isIce, randomGarment, randomIce } from './Extras';
 import type { Area } from './Shop';
 
 export type Chore = 'bedMade' | 'curtainsOpen' | 'flowersPlaced' | 'vacuumed' | 'towelsFolded';
@@ -10,31 +12,44 @@ export const CHORES: Chore[] = ['bedMade', 'curtainsOpen', 'flowersPlaced', 'vac
 /** The three things a guest comes to the hotel to do, in whatever order they fancy. */
 export type Place = 'pool' | 'restaurant' | 'room';
 
-/** Where a guest is standing right now. */
-export type GuestAt = 'lobby' | Place | 'checkout';
+/** Where a guest can be led: one of their stops, or back to the desk to check out. */
+export type Destination = Place | 'checkout';
+
+/**
+ * Where a guest is right now.
+ *
+ * 'following' is walking with the player. Guests never change place on their own any more —
+ * a guest who was there a moment ago and is simply gone, because they read out that they
+ * were off to the pool, is exactly what a child who cannot read yet finds baffling. Moving
+ * is something the player does, by leading them.
+ */
+export type GuestAt = 'lobby' | Place | 'checkout' | 'following';
 
 /**
  * How long a guest waits.
  *
- * Three phases, and the numbers are the whole difficulty curve of the game:
+ * The phases, and the numbers are the whole difficulty curve of the game:
  *
- *  - `waiting`   — up to their patience. Do the job inside this and it pays a star.
- *  - `impatient` — a further GRUMPY_MS. The job can still be done, and still has to be, but
- *                  it no longer pays. This is the consequence, and it is deliberately not a
+ *  - `waiting`   — up to their patience. Do the job inside this and it pays.
+ *  - `impatient` — past it. The job can still be done, and still has to be, but it no
+ *                  longer pays. This is the consequence, and it is deliberately not a
  *                  punishment: nothing is taken away, a star is simply not earned.
- *  - `happy`     — ENJOY_MS of swimming, eating or sleeping, then they move on.
+ *  - `happy`     — ENJOY_MS of swimming, eating or sleeping.
+ *  - `ready`     — finished here, or given up after a further GRUMPY_MS, and waiting to be
+ *                  led on. There is no clock on this one: a guest who is content to wait
+ *                  costs nothing, and one who has given up has already cost the star.
  *
  * A minute is a long time for an adult and about right for a child who has to work out
- * where the job is, walk there, and do it. A restaurant order buys more: three dishes is
- * three trips through the kitchen, and charging the same minute for that would make a big
- * order a punishment rather than a treat.
+ * where the job is, walk there, and do it. Every extra thing asked for buys more time:
+ * three dishes is three trips through the kitchen, and charging the same minute for that
+ * would make a big order a punishment rather than a treat.
  */
 export const PATIENCE_MS = 60_000;
-export const EXTRA_PATIENCE_PER_DISH_MS = 25_000;
+export const EXTRA_PATIENCE_PER_ITEM_MS = 25_000;
 export const GRUMPY_MS = 30_000;
 export const ENJOY_MS = 12_000;
 
-export type GuestPhase = 'waiting' | 'impatient' | 'happy';
+export type GuestPhase = 'waiting' | 'impatient' | 'happy' | 'ready';
 
 export interface GuestData {
   id: number;
@@ -47,17 +62,28 @@ export interface GuestData {
   /** How far through the plan they are. */
   step: number;
   at: GuestAt;
+  /** While following the player: where they want to be taken. */
+  heading: Destination | null;
   /** Epoch ms when they arrived where they are and started waiting. */
   since: number;
   /** Epoch ms when what they were waiting for arrived; null while they are still waiting. */
   settledAt: number | null;
+  /** Finished here — enjoyed it, or gave up on it — and waiting to be led on. */
+  done: boolean;
   /** Set once their patience ran out here. Cleared when they move on. */
   gaveUp: boolean;
-  /** Which lounger they are lying on, at the pool. */
+  /** Which lounger is theirs, at the pool. */
   lounger: number | null;
+  /** In their bed, in their room. */
+  inBed: boolean;
   /** What they asked for in the restaurant, and what has been carried out to them. */
   order: string[];
   served: string[];
+  /** An ice cream or something to wear, asked for at this stop, and what has arrived. */
+  extras: string[];
+  extrasGot: string[];
+  /** What they were given at the boutique; they keep it on for the rest of their stay. */
+  wearing: string | null;
 }
 
 export interface RoomState {
@@ -82,6 +108,13 @@ export interface KitchenState {
 
 export interface PoolState {
   towels: boolean[];
+  /** Ice creams made at the stand, waiting on its counter to be handed over. */
+  ices: string[];
+}
+
+export interface BoutiqueState {
+  /** Things made in the boutique, waiting on the shelf to be handed over. */
+  ready: string[];
 }
 
 export interface GardenState {
@@ -118,6 +151,8 @@ export interface JobResult {
   guest: GuestData;
   /** True when the guest had already given up waiting — the job counts, the star does not. */
   late: boolean;
+  /** True when that was the last thing they were waiting for here. */
+  settled: boolean;
 }
 
 export interface ServeResult {
@@ -127,7 +162,17 @@ export interface ServeResult {
   late: boolean;
 }
 
-export const SAVE_KEY = 'sommer-hotellet-save';
+/** A guest setting off behind the player, and what they are leaving behind them. */
+export interface LeadResult {
+  guest: GuestData;
+  from: GuestAt;
+  heading: Destination;
+  /** They had what they came for here — a swim, a meal, a night's sleep. */
+  enjoyed: boolean;
+  late: boolean;
+}
+
+// Each player's save lives under its own key; see state/Profiles for the layout.
 const SAVE_VERSION = 4;
 
 /** Rooms the hotel starts with. The fourth is a shop upgrade. */
@@ -143,6 +188,15 @@ export const MAX_WAITING_GUESTS = 3;
 export const MAX_READY_DISHES = 6;
 /** Tables in the restaurant. */
 export const TABLE_COUNT = 5;
+/** Room on the ice cream stand's counter. */
+export const MAX_ICES = 3;
+/** Room on the boutique's shelf. */
+export const MAX_GARMENTS = 4;
+/** The shop upgrade that opens the boutique. */
+export const BOUTIQUE_ID = 'boutique';
+/** How often a guest at the pool fancies an ice cream, or something from the boutique. */
+const ICE_CHANCE = 0.5;
+const GARMENT_CHANCE = 0.45;
 /** Every recipe has the same number of ingredients; the map's counter relies on it. */
 export const RECIPE_STEPS = 3;
 
@@ -169,6 +223,16 @@ function shuffled<T>(items: T[]): T[] {
   return out;
 }
 
+/** `items` with one occurrence of each of `taken` removed — two soups ordered, one served, one left. */
+function without(items: string[], taken: string[]): string[] {
+  const left = [...items];
+  for (const item of taken) {
+    const at = left.indexOf(item);
+    if (at !== -1) left.splice(at, 1);
+  }
+  return left;
+}
+
 class GameState {
   stars = 0;
   guests: GuestData[] = [];
@@ -176,14 +240,27 @@ class GameState {
   kitchen: KitchenState = this.freshKitchen();
   pool: PoolState = this.freshPool();
   garden: GardenState = this.freshGarden();
+  boutique: BoutiqueState = this.freshBoutique();
   nextGuestId = 0;
   /** Shop items the child has bought, by item id. */
   owned: string[] = [];
   settings: Settings = this.freshSettings();
   skills: Record<string, SkillProgress> = {};
+  /**
+   * Whose hotel this is. Every save, load and reset goes to this player's key.
+   *
+   * Null only when there is nobody to be — no players yet — and then nothing is written:
+   * the title screen must not invent a save for a child who has not been created.
+   */
+  profileId: string | null = null;
 
   constructor() {
     this.rooms = this.freshRooms();
+    // A save from before profiles becomes the first player's before anything reads it.
+    migrateLegacySave();
+    // Until somebody taps a card, wear whoever played last: their sound and music settings
+    // are what the title screen should obey.
+    this.profileId = lastProfileId();
     this.load();
   }
 
@@ -210,7 +287,11 @@ class GameState {
   }
 
   private freshPool(): PoolState {
-    return { towels: Array(LOUNGER_COUNT).fill(false) };
+    return { towels: Array(LOUNGER_COUNT).fill(false), ices: [] };
+  }
+
+  private freshBoutique(): BoutiqueState {
+    return { ready: [] };
   }
 
   private freshGarden(): GardenState {
@@ -377,7 +458,7 @@ class GameState {
   // ---------- guests ----------
 
   createGuest(): GuestData | null {
-    if (this.getWaitingGuests().length >= MAX_WAITING_GUESTS) return null;
+    if (this.lobbyGuests().length >= MAX_WAITING_GUESTS) return null;
     const id = this.nextGuestId++;
     const guest: GuestData = {
       id,
@@ -388,12 +469,18 @@ class GameState {
       plan: shuffled(ALL_PLACES),
       step: 0,
       at: 'lobby',
+      heading: null,
       since: Date.now(),
       settledAt: null,
+      done: false,
       gaveUp: false,
       lounger: null,
+      inBed: false,
       order: [],
       served: [],
+      extras: [],
+      extrasGot: [],
+      wearing: null,
     };
     this.guests.push(guest);
     this.save();
@@ -401,30 +488,33 @@ class GameState {
   }
 
   /**
-   * Hands over a key and sends the guest off on the first thing in their plan.
+   * Hands over a key.
    *
-   * Returns the room and whether the guest had already lost patience at the desk, so the
-   * lobby knows whether the check-in earns anything.
+   * The guest stays at the desk afterwards, ready to be shown the way to the first thing on
+   * their plan — the player leads them there. Returns the room and whether they had already
+   * lost patience at the desk, so the lobby knows whether the check-in earns anything.
    */
   checkInGuest(guestId: number): { room: number; late: boolean } | null {
-    const guest = this.guests.find(g => g.id === guestId);
+    const guest = this.guestById(guestId);
     if (!guest || guest.checkedIn) return null;
 
     const freeRoom = this.rooms.findIndex(r => r.guestId === null);
     if (freeRoom === -1) return null;
 
     const late = guest.gaveUp;
+    const now = Date.now();
     guest.checkedIn = true;
     guest.roomNumber = freeRoom;
+    guest.settledAt = now;
+    guest.done = true;
     this.rooms[freeRoom].guestId = guestId;
-    this.arriveAt(guest, guest.plan[0], Date.now());
     this.save();
     return { room: freeRoom, late };
   }
 
   /** Sends the guest home and frees the room for whoever is next at the desk. */
   checkOutGuest(guestId: number): { late: boolean } | null {
-    const guest = this.guests.find(g => g.id === guestId);
+    const guest = this.guestById(guestId);
     if (!guest || guest.at !== 'checkout') return null;
 
     const late = guest.gaveUp;
@@ -444,17 +534,35 @@ class GameState {
     return { late };
   }
 
+  guestById(guestId: number): GuestData | null {
+    return this.guests.find(g => g.id === guestId) ?? null;
+  }
+
   getCheckedInGuests(): GuestData[] {
     return this.guests.filter(g => g.checkedIn);
   }
 
+  /** Guests at the desk who have not been given a key yet. */
   getWaitingGuests(): GuestData[] {
     return this.guests.filter(g => !g.checkedIn);
+  }
+
+  /**
+   * Everybody standing at the front desk on their way in — still waiting for a key, or
+   * holding one and waiting to be shown the way. The bell will not call more than fit.
+   */
+  lobbyGuests(): GuestData[] {
+    return this.guests.filter(g => g.at === 'lobby');
   }
 
   /** Guests standing in one part of the hotel, in a stable order so nobody jumps about. */
   guestsAt(at: GuestAt): GuestData[] {
     return this.guests.filter(g => g.checkedIn && g.at === at);
+  }
+
+  /** Guests walking with the player, in the order they set off. */
+  followers(): GuestData[] {
+    return this.guests.filter(g => g.at === 'following');
   }
 
   guestInRoom(roomIndex: number): GuestData | null {
@@ -471,38 +579,40 @@ class GameState {
 
   /** How long this guest will wait where they are, before the star is off the table. */
   patienceMsFor(guest: GuestData): number {
-    if (guest.at !== 'restaurant') return PATIENCE_MS;
-    return PATIENCE_MS + Math.max(0, guest.order.length - 1) * EXTRA_PATIENCE_PER_DISH_MS;
+    const extraDishes = guest.at === 'restaurant' ? Math.max(0, guest.order.length - 1) : 0;
+    return PATIENCE_MS + (extraDishes + guest.extras.length) * EXTRA_PATIENCE_PER_ITEM_MS;
   }
 
   guestPhase(guest: GuestData, now = Date.now()): GuestPhase {
+    if (guest.done || guest.at === 'following') return 'ready';
     if (guest.settledAt !== null) return 'happy';
     return now - guest.since > this.patienceMsFor(guest) ? 'impatient' : 'waiting';
   }
 
   /** How much of a guest's patience is left, 1 down to 0. */
   patienceLeft(guest: GuestData, now = Date.now()): number {
-    if (guest.settledAt !== null) return 1;
+    if (guest.settledAt !== null || guest.done) return 1;
     const left = 1 - (now - guest.since) / this.patienceMsFor(guest);
     return Math.max(0, Math.min(1, left));
   }
 
-  /** What a guest is still waiting for, or null when they are being looked after. */
-  needOf(guest: GuestData): Place | 'checkin' | 'checkout' | null {
-    if (guest.settledAt !== null) return null;
-    if (guest.at === 'lobby') return 'checkin';
-    if (guest.at === 'checkout') return 'checkout';
-    return guest.at;
+  /**
+   * True when this guest is waiting on the player: for a job, a key, a bill, or to be led
+   * somewhere. The map puts its badges on exactly these.
+   */
+  needsPlayer(guest: GuestData, now = Date.now()): boolean {
+    if (guest.at === 'following') return false;
+    return this.guestPhase(guest, now) !== 'happy';
   }
 
   /** Dishes ordered but not yet carried out, as a list (so two soups read as two). */
   outstandingOrder(guest: GuestData): string[] {
-    const left = [...guest.order];
-    for (const dish of guest.served) {
-      const at = left.indexOf(dish);
-      if (at !== -1) left.splice(at, 1);
-    }
-    return left;
+    return without(guest.order, guest.served);
+  }
+
+  /** Ice creams and clothes asked for here and not yet handed over. */
+  outstandingExtras(guest: GuestData): string[] {
+    return without(guest.extras, guest.extrasGot);
   }
 
   /**
@@ -511,16 +621,21 @@ class GameState {
    * Called on a slow loop by whichever scene is open, so guests keep living their day while
    * the player is somewhere else in the hotel. Returns true when something actually
    * changed, so a scene only redraws when there is something new to draw.
+   *
+   * Time can make a guest impatient, finish their swim or their meal, or make them give up
+   * on a stop — but it never moves them. Whatever happens, they are still standing where
+   * the player left them.
    */
   tickGuests(now = Date.now()): boolean {
     let changed = false;
 
     for (const guest of this.guests) {
+      if (guest.at === 'following' || guest.done) continue;
       const patience = this.patienceMsFor(guest);
 
-      if (!guest.checkedIn) {
+      if (!guest.checkedIn || guest.at === 'checkout') {
         // Nobody at the desk ever walks out — that would just make a guest vanish. They
-        // only get impatient, which costs the check-in its star.
+        // only get impatient, which costs the check-in or check-out its star.
         if (!guest.gaveUp && now - guest.since > patience) {
           guest.gaveUp = true;
           changed = true;
@@ -528,36 +643,23 @@ class GameState {
         continue;
       }
 
-      if (guest.at === 'checkout') {
-        if (!guest.gaveUp && now - guest.since > patience) {
-          guest.gaveUp = true;
+      if (guest.settledAt !== null) {
+        if (now - guest.settledAt > ENJOY_MS) {
+          guest.done = true;
           changed = true;
         }
         continue;
       }
 
-      // A need can be met without the player doing anything here — a room that was already
-      // clean when they walked in, a lounger free and made up.
-      if (guest.settledAt === null && this.tryToSettle(guest, now)) {
+      if (!guest.gaveUp && now - guest.since > patience) {
+        guest.gaveUp = true;
         changed = true;
-        continue;
       }
-
-      if (guest.settledAt === null) {
-        if (!guest.gaveUp && now - guest.since > patience) {
-          guest.gaveUp = true;
-          changed = true;
-        }
-        // Still nothing after the grumpy window: give up on this and go do the next thing.
-        if (now - guest.since > patience + GRUMPY_MS) {
-          this.advance(guest, now);
-          changed = true;
-        }
-        continue;
-      }
-
-      if (now - guest.settledAt > ENJOY_MS) {
-        this.advance(guest, now);
+      // Still nothing after the grumpy window: they give up on this stop and want to be
+      // taken to the next one. A consequence that left them waiting here for ever would be
+      // a deadlock, not a difficulty setting.
+      if (now - guest.since > patience + GRUMPY_MS) {
+        guest.done = true;
         changed = true;
       }
     }
@@ -566,69 +668,121 @@ class GameState {
     return changed;
   }
 
-  /** True when the guest's need at their current place is already met. */
-  private tryToSettle(guest: GuestData, now: number): boolean {
+  /** Everything this guest came here for has arrived: from now on they are enjoying it. */
+  private settleIfComplete(guest: GuestData, now: number): void {
+    if (guest.settledAt !== null || !this.primaryMet(guest)) return;
+    if (this.outstandingExtras(guest).length > 0) return;
+    guest.settledAt = now;
+  }
+
+  /** The thing the stop is for: a lounger, a whole meal, a bed. */
+  private primaryMet(guest: GuestData): boolean {
     switch (guest.at) {
-      case 'pool': {
-        const lounger = this.freeLounger();
-        if (lounger === null) return false;
-        guest.lounger = lounger;
-        guest.settledAt = now;
-        return true;
-      }
-      case 'restaurant':
-        // Food is carried out by the player, never conjured — settling happens in serveTo().
-        return false;
-      case 'room':
-        if (guest.roomNumber === null || !this.isRoomClean(guest.roomNumber)) return false;
-        guest.settledAt = now;
-        return true;
-      default:
-        return false;
+      case 'pool': return guest.lounger !== null;
+      case 'room': return guest.inBed;
+      case 'restaurant': return this.outstandingOrder(guest).length === 0;
+      default: return false;
     }
   }
 
-  /** A made-up lounger nobody is lying on. */
-  private freeLounger(): number | null {
-    const taken = new Set(
-      this.guests.filter(g => g.at === 'pool' && g.lounger !== null).map(g => g.lounger)
-    );
-    for (let i = 0; i < LOUNGER_COUNT; i++) {
-      if (this.pool.towels[i] && !taken.has(i)) return i;
-    }
-    return null;
+  /** A guest still waiting for something here, who has not given up on it. */
+  private stillWaiting(guest: GuestData | null, at: GuestAt): guest is GuestData {
+    return !!guest && guest.at === at && guest.settledAt === null && !guest.done;
   }
 
   private arriveAt(guest: GuestData, at: GuestAt, now: number): void {
     guest.at = at;
+    guest.heading = null;
     guest.since = now;
     guest.settledAt = null;
+    guest.done = false;
     guest.gaveUp = false;
     guest.lounger = null;
-    if (at === 'restaurant') {
-      guest.order = randomOrder();
-      guest.served = [];
-    } else {
-      guest.order = [];
-      guest.served = [];
-    }
+    guest.inBed = false;
+    guest.order = at === 'restaurant' ? randomOrder() : [];
+    guest.served = [];
+    guest.extras = at === 'pool' ? this.poolWishes(guest) : [];
+    guest.extrasGot = [];
   }
 
-  private advance(guest: GuestData, now: number): void {
-    guest.step++;
-    if (guest.step >= guest.plan.length) {
-      this.arriveAt(guest, 'checkout', now);
-      return;
+  /** What a guest at the pool fancies besides somewhere to lie down. */
+  private poolWishes(guest: GuestData): string[] {
+    const wishes: string[] = [];
+    if (Math.random() < ICE_CHANCE) wishes.push(randomIce());
+    // Only once the boutique is open, and only once per stay: they keep it on.
+    if (this.owns(BOUTIQUE_ID) && !guest.wearing && Math.random() < GARMENT_CHANCE) {
+      wishes.push(randomGarment());
     }
-    this.arriveAt(guest, guest.plan[guest.step], now);
+    return wishes;
   }
 
-  /** Where the guest is heading after this, for their speech bubble. */
-  nextPlaceOf(guest: GuestData): Place | 'checkout' | null {
+  /** Where the guest wants to be taken next. */
+  nextPlaceOf(guest: GuestData): Destination | null {
     if (!guest.checkedIn) return guest.plan[0] ?? null;
+    if (guest.at === 'following') return guest.heading;
     if (guest.at === 'checkout') return null;
-    const next = guest.plan[guest.step + 1];
-    return next ?? 'checkout';
+    if (guest.at === 'lobby') return guest.plan[0] ?? 'checkout';
+    return guest.plan[guest.step + 1] ?? 'checkout';
+  }
+
+  /**
+   * The guest sets off behind the player.
+   *
+   * Only a guest who is finished where they are will come. Their lounger goes back to the
+   * pool — and the towel goes with them, so the next guest needs a fresh one, the same way
+   * a room needs making up again after check-out.
+   */
+  leadGuest(guestId: number, now = Date.now()): LeadResult | null {
+    const guest = this.guestById(guestId);
+    if (!guest || !guest.checkedIn || !guest.done) return null;
+    if (guest.at === 'following' || guest.at === 'checkout') return null;
+
+    const heading = this.nextPlaceOf(guest);
+    if (!heading) return null;
+
+    const from = guest.at;
+    const enjoyed = guest.settledAt !== null;
+    const late = guest.gaveUp;
+
+    if (from !== 'lobby') guest.step++;
+    if (guest.lounger !== null) this.pool.towels[guest.lounger] = false;
+
+    guest.at = 'following';
+    guest.heading = heading;
+    guest.since = now;
+    guest.settledAt = null;
+    guest.done = false;
+    guest.gaveUp = false;
+    guest.lounger = null;
+    guest.inBed = false;
+    guest.order = [];
+    guest.served = [];
+    guest.extras = [];
+    guest.extrasGot = [];
+    this.save();
+    return { guest, from, heading, enjoyed, late };
+  }
+
+  /**
+   * Hands over every follower who was heading here.
+   *
+   * The restaurant is the one place that can be full: a guest who finds every table taken
+   * keeps following rather than standing in the doorway.
+   */
+  dropOff(destination: Destination, now = Date.now()): { arrived: GuestData[]; refused: GuestData[] } {
+    const arrived: GuestData[] = [];
+    const refused: GuestData[] = [];
+    for (const guest of this.followers()) {
+      if (guest.heading !== destination) continue;
+      if (destination === 'restaurant' && this.guestsAt('restaurant').length >= TABLE_COUNT) {
+        refused.push(guest);
+        continue;
+      }
+      this.arriveAt(guest, destination, now);
+      arrived.push(guest);
+    }
+    if (arrived.length > 0) this.save();
+    return { arrived, refused };
   }
 
   // ---------- kitchen ----------
@@ -646,7 +800,7 @@ class GameState {
     return true;
   }
 
-  /** True when the pot holds a whole recipe and there is room on the pass for it. */
+  /** True when the pot holds a whole recipe and there is room on the shelf for it. */
   canCook(ingredientCount: number): boolean {
     return this.kitchen.recipe !== null
       && this.kitchen.added.length >= ingredientCount
@@ -654,11 +808,11 @@ class GameState {
   }
 
   /**
-   * Turns the full pot into a finished dish on the pass.
+   * Turns the full pot into a finished dish, ready for the tables.
    *
-   * Cooking is the one thing in the kitchen that pays: putting a carrot in a pot is not a
-   * job, making dinner is. Serving it is a separate act, done by the player in the
-   * restaurant, because handing a plate to the person who asked for it is the whole point.
+   * Cooking pays nothing by itself — the star is for the guest who gets fed, not for the
+   * pot. Serving is a separate act, done by the player in the restaurant, because handing
+   * a plate to the person who asked for it is the whole point.
    */
   cookDish(): string | null {
     const dish = this.kitchen.recipe;
@@ -670,44 +824,46 @@ class GameState {
     return dish;
   }
 
-  /** Everything on the pass that at least one seated guest is still waiting for. */
+  /** Everything ready that at least one seated guest is still waiting for. */
   wantedDishes(): string[] {
     const wanted = new Set(this.guestsAt('restaurant').flatMap(g => this.outstandingOrder(g)));
     return this.kitchen.ready.filter(d => wanted.has(d));
   }
 
-  /** Dishes every seated guest is still waiting for, so the kitchen knows what to cook. */
+  /** Dishes seated guests are still waiting for, so the kitchen knows what to cook. */
   openOrders(): string[] {
-    return this.guestsAt('restaurant').flatMap(g => this.outstandingOrder(g));
+    return this.guestsAt('restaurant')
+      .filter(g => !g.done)
+      .flatMap(g => this.outstandingOrder(g));
   }
 
   /**
-   * Carries one dish from the pass to a guest.
+   * Carries one dish out to a guest.
    *
-   * Null when there is nothing on the pass that this guest asked for — the caller turns
-   * that into "she is still waiting for pancakes" rather than an error.
+   * `dish` picks which one, when the card offers a choice; without it the first ready dish
+   * they asked for goes. Null when nothing ready is on their order.
    */
-  serveTo(guestId: number): ServeResult | null {
-    const guest = this.guests.find(g => g.id === guestId);
-    if (!guest || guest.at !== 'restaurant' || guest.settledAt !== null) return null;
+  serveTo(guestId: number, dish?: string): ServeResult | null {
+    const guest = this.guestById(guestId);
+    if (!this.stillWaiting(guest, 'restaurant')) return null;
 
     const wants = this.outstandingOrder(guest);
-    const dish = this.kitchen.ready.find(d => wants.includes(d));
-    if (!dish) return null;
+    const chosen = dish ?? this.kitchen.ready.find(d => wants.includes(d));
+    if (!chosen || !wants.includes(chosen) || !this.kitchen.ready.includes(chosen)) return null;
 
-    this.kitchen.ready.splice(this.kitchen.ready.indexOf(dish), 1);
-    guest.served.push(dish);
+    this.kitchen.ready.splice(this.kitchen.ready.indexOf(chosen), 1);
+    guest.served.push(chosen);
     this.kitchen.dishesServed++;
 
-    const complete = this.outstandingOrder(guest).length === 0;
     const late = guest.gaveUp;
-    if (complete) guest.settledAt = Date.now();
+    this.settleIfComplete(guest, Date.now());
+    const complete = this.outstandingOrder(guest).length === 0;
 
     this.save();
-    return { dish, complete, late };
+    return { dish: chosen, complete, late };
   }
 
-  /** Bins one dish off the pass, so a kitchen full of food nobody wants is not a dead end. */
+  /** Bins one dish, so a kitchen full of food nobody wants is not a dead end. */
   scrapeDish(dish: string): boolean {
     const at = this.kitchen.ready.indexOf(dish);
     if (at === -1) return false;
@@ -723,6 +879,7 @@ class GameState {
 
   // ---------- pool ----------
 
+  /** Laying a towel is preparation, not service: it pays nothing until a guest uses it. */
   layTowel(index: number): boolean {
     if (this.pool.towels[index]) return false;
     this.pool.towels[index] = true;
@@ -730,32 +887,112 @@ class GameState {
     return true;
   }
 
-  /**
-   * Puts every waiting guest who can now have a lounger onto one.
-   *
-   * Returns the guests that were seated, so the pool knows whether the towel that was just
-   * laid actually helped anybody — and whether it was laid in time.
-   */
-  seatPoolGuests(now = Date.now()): JobResult[] {
-    const seated: JobResult[] = [];
-    for (const guest of this.guestsAt('pool')) {
-      if (guest.settledAt !== null) continue;
-      const late = guest.gaveUp;
-      if (!this.tryToSettle(guest, now)) continue;
-      seated.push({ guest, late });
+  /** A made-up lounger nobody has claimed. */
+  freeLounger(): number | null {
+    const taken = new Set(
+      this.guests.filter(g => g.at === 'pool' && g.lounger !== null).map(g => g.lounger)
+    );
+    for (let i = 0; i < LOUNGER_COUNT; i++) {
+      if (this.pool.towels[i] && !taken.has(i)) return i;
     }
-    if (seated.length > 0) this.save();
-    return seated;
+    return null;
   }
 
-  /** Tucks in the guest waiting in a room that has just been finished. */
-  settleRoomGuest(roomIndex: number, now = Date.now()): JobResult | null {
-    const guest = this.guestInRoom(roomIndex);
-    if (!guest || guest.at !== 'room' || guest.settledAt !== null) return null;
-    const late = guest.gaveUp;
-    if (!this.tryToSettle(guest, now)) return null;
+  /** Shows a waiting guest to a lounger with a towel on it. */
+  giveLounger(guestId: number, now = Date.now()): JobResult | null {
+    const guest = this.guestById(guestId);
+    if (!this.stillWaiting(guest, 'pool') || guest.lounger !== null) return null;
+    const lounger = this.freeLounger();
+    if (lounger === null) return null;
+
+    guest.lounger = lounger;
+    this.settleIfComplete(guest, now);
     this.save();
-    return { guest, late };
+    return { guest, late: guest.gaveUp, settled: guest.settledAt !== null };
+  }
+
+  /** Puts an ice cream on the stand's counter. */
+  makeIce(key: string): boolean {
+    if (this.pool.ices.length >= MAX_ICES) return false;
+    this.pool.ices.push(key);
+    this.save();
+    return true;
+  }
+
+  scrapeIce(index: number): boolean {
+    if (index < 0 || index >= this.pool.ices.length) return false;
+    this.pool.ices.splice(index, 1);
+    this.save();
+    return true;
+  }
+
+  // ---------- bedtime ----------
+
+  /** Tucks a waiting guest into their bed — once the room is actually made up. */
+  putToBed(guestId: number, now = Date.now()): JobResult | null {
+    const guest = this.guestById(guestId);
+    if (!this.stillWaiting(guest, 'room') || guest.roomNumber === null) return null;
+    if (!this.isRoomClean(guest.roomNumber)) return null;
+
+    guest.inBed = true;
+    this.settleIfComplete(guest, now);
+    this.save();
+    return { guest, late: guest.gaveUp, settled: guest.settledAt !== null };
+  }
+
+  // ---------- boutique ----------
+
+  makeGarment(key: string): boolean {
+    if (!this.owns(BOUTIQUE_ID) || this.boutique.ready.length >= MAX_GARMENTS) return false;
+    this.boutique.ready.push(key);
+    this.save();
+    return true;
+  }
+
+  scrapeGarment(index: number): boolean {
+    if (index < 0 || index >= this.boutique.ready.length) return false;
+    this.boutique.ready.splice(index, 1);
+    this.save();
+    return true;
+  }
+
+  /** Clothes guests are still waiting for, so the boutique knows what to make. */
+  wantedGarments(): string[] {
+    return this.guests
+      .filter(g => g.checkedIn && !g.done && g.at !== 'following')
+      .flatMap(g => this.outstandingExtras(g))
+      .filter(isGarment);
+  }
+
+  /** Ice creams guests are still waiting for. */
+  wantedIces(): string[] {
+    return this.guestsAt('pool')
+      .filter(g => !g.done)
+      .flatMap(g => this.outstandingExtras(g))
+      .filter(isIce);
+  }
+
+  /** True when the thing this guest asked for is made and waiting on its counter. */
+  extraReady(key: string): boolean {
+    return (isIce(key) ? this.pool.ices : this.boutique.ready).includes(key);
+  }
+
+  /** Hands an ice cream or a piece of clothing to the guest who asked for it. */
+  giveExtra(guestId: number, key: string, now = Date.now()): JobResult | null {
+    const guest = this.guestById(guestId);
+    if (!guest || guest.settledAt !== null || guest.done || guest.at === 'following') return null;
+    if (!this.outstandingExtras(guest).includes(key)) return null;
+
+    const counter = isIce(key) ? this.pool.ices : this.boutique.ready;
+    const at = counter.indexOf(key);
+    if (at === -1) return null;
+
+    counter.splice(at, 1);
+    guest.extrasGot.push(key);
+    if (isGarment(key)) guest.wearing = key;
+    this.settleIfComplete(guest, now);
+    this.save();
+    return { guest, late: guest.gaveUp, settled: guest.settledAt !== null };
   }
 
   // ---------- garden ----------
@@ -793,15 +1030,14 @@ class GameState {
    * How many jobs are left in an area.
    *
    * Derived, never stored — it is a read of the same state the scenes draw from, so it
-   * cannot drift out of sync with them. The hotel map uses it to put a number on each
-   * area, which is what turns five identical buttons into a place with things going on.
+   * cannot drift out of sync with them.
    */
   todoIn(area: Area): number {
     switch (area) {
       case 'lobby':
-        // Either there are guests to check in, or the bell is worth ringing.
-        return this.getWaitingGuests().length > 0
-          ? this.getWaitingGuests().length
+        // Either there are guests at the desk, or the bell is worth ringing.
+        return this.lobbyGuests().length + this.guestsAt('checkout').length > 0
+          ? this.lobbyGuests().length + this.guestsAt('checkout').length
           : (this.hasFreeRoom() ? 1 : 0);
 
       case 'rooms':
@@ -825,25 +1061,62 @@ class GameState {
 
   // ---------- persistence ----------
 
+  /** The active player's save key; null before there is anyone to save for. */
+  private get saveKey(): string | null {
+    return this.profileId ? saveKeyFor(this.profileId) : null;
+  }
+
+  /** The active player's name and face, or null before anyone has been created. */
+  get profile(): Profile | null {
+    return findProfile(this.profileId);
+  }
+
+  /**
+   * Makes `id` the player whose hotel this is, and puts their hotel on the table.
+   *
+   * Memory is emptied first: `load()` only fills in what a save has, so a player with no
+   * save yet would otherwise sit down in the previous child's hotel.
+   */
+  loadProfile(id: string | null): void {
+    this.profileId = id;
+    this.clear();
+    this.load();
+    if (id) setLastProfile(id);
+  }
+
+  /** "Start forfra": this player's hotel goes back to the beginning. Nobody else's does. */
   reset(): void {
+    this.clear();
+    const key = this.saveKey;
+    if (!key) return;
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // localStorage may be unavailable; in-memory reset is still correct
+    }
+    // or the native copy would put the old hotel back the next time web storage is lost
+    unmirror(key);
+  }
+
+  /** An empty hotel in memory. Touches nothing on disk. */
+  private clear(): void {
     this.stars = 0;
     this.guests = [];
     this.rooms = this.freshRooms();
     this.kitchen = this.freshKitchen();
     this.pool = this.freshPool();
     this.garden = this.freshGarden();
+    this.boutique = this.freshBoutique();
     this.nextGuestId = 0;
     this.owned = [];
     this.settings = this.freshSettings();
     this.skills = {};
-    try {
-      localStorage.removeItem(SAVE_KEY);
-    } catch {
-      // localStorage may be unavailable; in-memory reset is still correct
-    }
   }
 
   save(): void {
+    const key = this.saveKey;
+    if (!key) return;
+
     const json = JSON.stringify({
       version: SAVE_VERSION,
       stars: this.stars,
@@ -852,6 +1125,7 @@ class GameState {
       kitchen: this.kitchen,
       pool: this.pool,
       garden: this.garden,
+      boutique: this.boutique,
       nextGuestId: this.nextGuestId,
       owned: this.owned,
       settings: this.settings,
@@ -859,20 +1133,23 @@ class GameState {
     });
 
     try {
-      localStorage.setItem(SAVE_KEY, json);
+      localStorage.setItem(key, json);
     } catch {
       // private browsing or a full quota — the game still plays, it just will not persist
     }
 
     // On Android the same bytes go to native storage as well, which survives the WebView
     // having its web data cleared. No-op in a browser.
-    mirrorSave(json);
+    mirror(key, json);
   }
 
   load(): void {
+    const key = this.saveKey;
+    if (!key) return;
+
     let data: Record<string, unknown> | null = null;
     try {
-      const raw = localStorage.getItem(SAVE_KEY);
+      const raw = localStorage.getItem(key);
       data = raw ? JSON.parse(raw) : null;
     } catch {
       data = null;
@@ -892,6 +1169,7 @@ class GameState {
     const kitchen = data.kitchen as KitchenState | undefined;
     const pool = data.pool as PoolState | undefined;
     const garden = data.garden as GardenState | undefined;
+    const boutique = data.boutique as BoutiqueState | undefined;
     const settings = data.settings as Partial<Settings> | undefined;
 
     this.stars = (data.stars as number) ?? 0;
@@ -918,7 +1196,12 @@ class GameState {
 
     this.kitchen = { ...this.freshKitchen(), ...kitchen };
     if (!Array.isArray(this.kitchen.ready)) this.kitchen.ready = [];
-    this.pool = pool?.towels?.length === LOUNGER_COUNT ? pool : this.freshPool();
+    // The ice counter and the boutique arrived after version 4 did; both are additive, so a
+    // save without them simply starts them empty rather than costing anybody their hotel.
+    this.pool = pool?.towels?.length === LOUNGER_COUNT
+      ? { ...this.freshPool(), ...pool, ices: Array.isArray(pool.ices) ? pool.ices : [] }
+      : this.freshPool();
+    this.boutique = Array.isArray(boutique?.ready) ? { ready: boutique.ready } : this.freshBoutique();
     this.garden = garden?.flowers?.length === FLOWER_COUNT && garden.apples?.length === APPLE_COUNT
       ? garden
       : this.freshGarden();
@@ -938,19 +1221,26 @@ class GameState {
   private restoreGuests(raw: unknown): GuestData[] {
     if (!Array.isArray(raw)) return [];
     const now = Date.now();
-    return (raw as GuestData[])
-      .filter(g => g && typeof g.id === 'number')
+    const list = <T>(v: T[] | undefined) => (Array.isArray(v) ? v : []);
+    return (raw as Partial<GuestData>[])
+      .filter((g): g is GuestData => !!g && typeof g.id === 'number')
       .map(g => ({
         ...g,
         plan: Array.isArray(g.plan) && g.plan.length > 0 ? g.plan : shuffled(ALL_PLACES),
         step: typeof g.step === 'number' ? g.step : 0,
         at: g.at ?? (g.checkedIn ? 'room' : 'lobby'),
+        heading: g.heading ?? null,
         since: now,
         settledAt: g.settledAt === null || g.settledAt === undefined ? null : now,
+        done: g.done === true,
         gaveUp: false,
         lounger: g.lounger ?? null,
-        order: Array.isArray(g.order) ? g.order : [],
-        served: Array.isArray(g.served) ? g.served : [],
+        inBed: g.inBed === true,
+        order: list(g.order),
+        served: list(g.served),
+        extras: list(g.extras),
+        extrasGot: list(g.extrasGot),
+        wearing: g.wearing ?? null,
       }));
   }
 }

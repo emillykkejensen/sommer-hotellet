@@ -6,6 +6,26 @@ import { ALL_SKILLS, Level } from '../src/tasks/types';
 type Tally = { contexts: number; oscillators: number; buffers: number; pitches: number[] };
 
 /**
+ * Storage keys, restated here rather than imported. Renaming one in the game would strand
+ * every child's hotel on every device, so a test should break when that happens.
+ */
+export const PROFILES_KEY = 'sommer-hotellet-profiles';
+export const LEGACY_SAVE_KEY = 'sommer-hotellet-save';
+export const saveKeyFor = (id: string) => `${LEGACY_SAVE_KEY}:${id}`;
+
+export interface TestProfile { id: string; name: string; avatar: string }
+
+/** Something tappable on a scene: where it sits, what it says, and what it carries. */
+export interface Target {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  labels: string[];
+  data: Record<string, unknown>;
+}
+
+/**
  * Test harness for driving the Phaser canvas.
  *
  * Everything goes through game coordinates (GAME_WIDTH x GAME_HEIGHT, read from the game's
@@ -27,17 +47,50 @@ export class Game {
     });
   }
 
+  /** The one player most tests play as. */
+  static readonly PLAYER: TestProfile = { id: 'p1', name: 'Alma', avatar: 'kat' };
+
+  /** A fresh hotel: one player, who has not played yet. */
   static async open(page: Page): Promise<Game> {
+    return Game.openWithStorage(page, Game.players([Game.PLAYER]));
+  }
+
+  /** Numbers every seed, so a page that is opened twice gets the second one. */
+  private static seeds = 0;
+
+  /**
+   * Opens the game on exactly this localStorage.
+   *
+   * Seeded once per call rather than on every load, so a test can reload the page — which is
+   * what closing the game and opening it again looks like — and find what it left behind.
+   * Init scripts cannot be removed and all of them run on every load, so each seed carries
+   * a number and only writes when it is newer than the last one applied: a test that opens
+   * the page again with a new seed gets the new seed, and a reload gets none.
+   */
+  static async openWithStorage(page: Page, entries: Record<string, unknown>): Promise<Game> {
     const game = new Game(page);
     // The game honours prefers-reduced-motion by collapsing camera fades and the tap
     // squash. Enabling it here means the suite is not gated on animation time — which
     // matters because software WebGL runs at a few frames a second.
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.addInitScript(() => window.localStorage.clear());
     await Game.installAudioSpy(page);
+    await page.addInitScript(([seed, generation]) => {
+      const applied = Number(window.sessionStorage.getItem('__seeded') ?? 0);
+      if (generation <= applied) return;
+      window.sessionStorage.setItem('__seeded', String(generation));
+      window.localStorage.clear();
+      for (const [key, value] of Object.entries(seed)) {
+        window.localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+      }
+    }, [entries, ++Game.seeds] as const);
     await page.goto('/');
     await game.waitForScene('MainMenuScene');
     return game;
+  }
+
+  /** A profile index listing these players, with `last` as whoever played last. */
+  static players(profiles: TestProfile[], last: string | null = profiles[0]?.id ?? null): Record<string, unknown> {
+    return { [PROFILES_KEY]: { version: 1, profiles, last } };
   }
 
   /**
@@ -107,13 +160,27 @@ export class Game {
   }
 
   async tap(gx: number, gy: number): Promise<void> {
+    await this.tapWithoutSettling(gx, gy);
+    await this.settle();
+  }
+
+  /**
+   * Game coordinates to page pixels.
+   *
+   * The stage takes the screen's shape, so it is only GAME_WIDTH × GAME_HEIGHT at the 1.6
+   * the suite runs at; reading the live size keeps a tap honest on a phone-shaped viewport
+   * too. The `AT` table itself is written for the 1.6 stage.
+   */
+  private async toPage(gx: number, gy: number): Promise<{ x: number; y: number }> {
     const box = await this.page.locator('canvas').boundingBox();
     if (!box) throw new Error('canvas not found');
-    await this.page.mouse.click(
-      box.x + (gx / GAME_WIDTH) * box.width,
-      box.y + (gy / GAME_HEIGHT) * box.height
-    );
-    await this.settle();
+    const size = await this.page.evaluate(() => {
+      const g = (window as any).__game;
+      return g ? { w: g.scale.gameSize.width, h: g.scale.gameSize.height } : null;
+    });
+    const w = size?.w ?? GAME_WIDTH;
+    const h = size?.h ?? GAME_HEIGHT;
+    return { x: box.x + (gx / w) * box.width, y: box.y + (gy / h) * box.height };
   }
 
   /**
@@ -177,8 +244,14 @@ export class Game {
     await this.waitForScene('HotelMapScene');
   }
 
+  /** Picks the first player on the title screen and waits for their hotel. */
   async start(): Promise<void> {
-    await this.tap(AT.playButton.x, AT.playButton.y);
+    await this.pickPlayer();
+  }
+
+  /** Taps a player's card — by name, or the first one — and waits for the map. */
+  async pickPlayer(name?: string): Promise<void> {
+    await this.tapTarget('MainMenuScene', name ? { label: name } : { data: { slot: 0 } });
     await this.waitForScene('HotelMapScene');
   }
 
@@ -187,12 +260,83 @@ export class Game {
     return expect.poll(async () => read(await this.save()), { timeout: 12_000, message });
   }
 
-  /** Reads the persisted save, which is the game's single source of truth. */
+  /**
+   * Reads the active player's persisted save, which is the game's single source of truth.
+   * Which player is active comes off the live game state; null before anyone is.
+   */
   async save(): Promise<any> {
-    return this.page.evaluate(() => {
-      const raw = window.localStorage.getItem('sommer-hotellet-save');
+    return this.page.evaluate((key) => {
+      const id = window.__state.profileId;
+      const raw = id ? window.localStorage.getItem(`${key}:${id}`) : null;
       return raw ? JSON.parse(raw) : null;
-    });
+    }, LEGACY_SAVE_KEY);
+  }
+
+  /** Any one stored key, parsed. */
+  async stored(key: string): Promise<any> {
+    return this.page.evaluate((k) => {
+      const raw = window.localStorage.getItem(k);
+      return raw ? JSON.parse(raw) : null;
+    }, key);
+  }
+
+  /** The profile index: who the players are, and who played last. */
+  async profiles(): Promise<{ version: number; profiles: TestProfile[]; last: string | null } | null> {
+    return this.stored(PROFILES_KEY);
+  }
+
+  /**
+   * Every interactive object on a scene, at its position on the stage.
+   *
+   * Profile cards, avatar discs and the delete key carry their identity as Phaser data
+   * rather than as a label, because a face is not a word; everything else is found by the
+   * text on it.
+   */
+  async targets(sceneKey: string): Promise<Target[]> {
+    return this.page.evaluate((key) => {
+      const found: any[] = [];
+      const textsIn = (o: any): string[] => {
+        const out: string[] = [];
+        for (const c of o.list ?? []) {
+          if (c?.type === 'Text') out.push(c.text);
+          if (Array.isArray(c?.list)) out.push(...textsIn(c));
+        }
+        return out;
+      };
+      const walk = (objs: any[], ox: number, oy: number) => {
+        for (const o of objs || []) {
+          if (!o) continue;
+          const x = ox + (o.x || 0);
+          const y = oy + (o.y || 0);
+          if (o.input?.enabled) {
+            found.push({
+              x, y,
+              w: o.input.hitArea?.width ?? 0,
+              h: o.input.hitArea?.height ?? 0,
+              labels: textsIn(o),
+              data: o.data ? { ...o.data.list } : {},
+            });
+          }
+          if (Array.isArray(o.list)) walk(o.list, x, y);
+        }
+      };
+      walk((window.__game.scene.getScene(key) as any).children.list, 0, 0);
+      return found;
+    }, sceneKey);
+  }
+
+  /** Taps the one target whose label or data matches. */
+  async tapTarget(
+    sceneKey: string,
+    match: { label?: string; data?: Record<string, unknown> }
+  ): Promise<void> {
+    const all = await this.targets(sceneKey);
+    const target = all.find(t =>
+      (match.label === undefined || t.labels.includes(match.label)) &&
+      Object.entries(match.data ?? {}).every(([k, v]) => t.data[k] === v)
+    );
+    if (!target) throw new Error(`no target on ${sceneKey} matching ${JSON.stringify(match)}`);
+    await this.tap(target.x, target.y);
   }
 
   async stars(): Promise<number> {
@@ -249,12 +393,8 @@ export class Game {
    * has already gone. Use this, assert, then `settle()`.
    */
   async tapWithoutSettling(gx: number, gy: number): Promise<void> {
-    const box = await this.page.locator('canvas').boundingBox();
-    if (!box) throw new Error('canvas not found');
-    await this.page.mouse.click(
-      box.x + (gx / GAME_WIDTH) * box.width,
-      box.y + (gy / GAME_HEIGHT) * box.height
-    );
+    const at = await this.toPage(gx, gy);
+    await this.page.mouse.click(at.x, at.y);
   }
 
   /**
@@ -551,6 +691,171 @@ export class Game {
     }
   }
 
+  /* ------------------------------------------------------------- guests --- */
+
+  /**
+   * Where a guest is on screen: their figure, or their chip under the back button if they
+   * are following the player. Null when they are not drawn in any open scene.
+   */
+  async guestSpot(id: number): Promise<{ x: number; y: number } | null> {
+    return this.page.evaluate((guestId) => {
+      for (const scene of window.__game.scene.getScenes(true) as any[]) {
+        const found: { x: number; y: number }[] = [];
+        const walk = (objs: any[], ox: number, oy: number) => {
+          for (const o of objs || []) {
+            if (!o) continue;
+            const x = ox + (o.x || 0);
+            const y = oy + (o.y || 0);
+            if (o.input?.enabled && o.getData?.('guestId') === guestId) found.push({ x, y });
+            if (Array.isArray(o.list)) walk(o.list, x, y);
+          }
+        };
+        walk(scene.children.list, 0, 0);
+        if (found.length > 0) return found[0];
+      }
+      return null;
+    }, id);
+  }
+
+  /** The open guest card's bounds, or null when no card is open. */
+  private async cardBox(): Promise<{ x: number; y: number; w: number; h: number } | null> {
+    return this.page.evaluate(() => {
+      for (const scene of window.__game.scene.getScenes(true) as any[]) {
+        const card = scene.children.list.find((o: any) => o.name === 'guestCard' && o.active);
+        if (card) return { x: card.x, y: card.y, w: card.width, h: card.height };
+      }
+      return null;
+    });
+  }
+
+  async cardOpen(): Promise<boolean> {
+    return (await this.cardBox()) !== null;
+  }
+
+  /** Closes the card with its own button, if one is open. */
+  async closeCard(): Promise<void> {
+    const box = await this.cardBox();
+    if (!box) return;
+    await this.tap(box.x + box.w / 2 - 24, box.y - box.h / 2 + 24);
+  }
+
+  /**
+   * Taps a guest, which opens their card.
+   *
+   * A card already open can cover a guest standing low on the screen — a real child closes
+   * it or taps the guest's thought bubble — so this closes it first when it is in the way.
+   */
+  async tapGuest(id: number): Promise<void> {
+    let spot = await this.guestSpot(id);
+    if (!spot) throw new Error(`guest ${id} is not on screen`);
+    const box = await this.cardBox();
+    if (box && Math.abs(spot.x - box.x) < box.w / 2 && Math.abs(spot.y - box.y) < box.h / 2) {
+      await this.closeCard();
+      spot = await this.guestSpot(id);
+      if (!spot) throw new Error(`guest ${id} went away`);
+    }
+    await this.tap(spot.x, spot.y);
+  }
+
+  /** Every Text in the open card, joined — what the guest says and the button labels. */
+  async cardText(): Promise<string> {
+    return this.page.evaluate(() => {
+      const out: string[] = [];
+      for (const scene of window.__game.scene.getScenes(true) as any[]) {
+        const card = scene.children.list.find((o: any) => o.name === 'guestCard' && o.active);
+        if (!card) continue;
+        const walk = (objs: any[]) => {
+          for (const o of objs || []) {
+            if (o?.type === 'Text') out.push(o.text);
+            if (Array.isArray(o?.list)) walk(o.list);
+          }
+        };
+        walk(card.list);
+      }
+      return out.join(' | ');
+    });
+  }
+
+  expectCard(message?: string) {
+    return expect.poll(() => this.cardText(), { timeout: 12_000, message });
+  }
+
+  /** Taps the button on the open card that carries this label. */
+  async tapCardAction(label: string): Promise<void> {
+    const target = await this.page.evaluate((wanted) => {
+      for (const scene of window.__game.scene.getScenes(true) as any[]) {
+        const card = scene.children.list.find((o: any) => o.name === 'guestCard' && o.active);
+        if (!card) continue;
+        const hits: { x: number; y: number }[] = [];
+        const hasLabel = (o: any): boolean =>
+          o?.type === 'Text' ? o.text === wanted : (o?.list ?? []).some(hasLabel);
+        const walk = (objs: any[], ox: number, oy: number) => {
+          for (const o of objs || []) {
+            if (!o) continue;
+            const x = ox + (o.x || 0);
+            const y = oy + (o.y || 0);
+            if (o.input && hasLabel(o)) hits.push({ x, y });
+            else if (Array.isArray(o.list)) walk(o.list, x, y);
+          }
+        };
+        walk(card.list, card.x, card.y);
+        if (hits.length > 0) return hits[0];
+      }
+      return null;
+    }, label);
+    if (!target) throw new Error(`no "${label}" on the card (card says: ${await this.cardText()})`);
+    await this.tap(target.x, target.y);
+  }
+
+  /** Tap a guest, then a button on their card. */
+  async helpGuest(id: number, label: string): Promise<void> {
+    await this.tapGuest(id);
+    await this.tapCardAction(label);
+  }
+
+  /**
+   * Fast-forwards a guest through their swim, meal or sleep.
+   *
+   * Like `ageGuest`, this winds the clock back on the live state and lets the game's own
+   * tick notice, so the scene redraws exactly as it would have.
+   */
+  async finishEnjoying(id: number): Promise<void> {
+    await this.page.evaluate((guestId) => {
+      const guest = window.__state.guests.find(g => g.id === guestId);
+      if (!guest || guest.settledAt === null) throw new Error(`guest ${guestId} is not settled`);
+      guest.settledAt -= 60_000;
+    }, id);
+    await this.page.waitForTimeout(2_500);
+    await this.settle();
+  }
+
+  /**
+   * Taps the interactive thing in a scene that is labelled with this text — a shop card,
+   * an option at the ice cream stand, a button.
+   */
+  async tapLabelled(sceneKey: string, label: string): Promise<void> {
+    const spot = await this.page.evaluate(([key, wanted]) => {
+      const scene = window.__game.scene.getScene(key) as any;
+      const found: { x: number; y: number }[] = [];
+      const walk = (objs: any[], ox: number, oy: number) => {
+        for (const o of objs || []) {
+          if (!o) continue;
+          const x = ox + (o.x || 0);
+          const y = oy + (o.y || 0);
+          if (o.input) {
+            const labels = (o.list || []).filter((c: any) => c.type === 'Text').map((c: any) => c.text);
+            if (labels.includes(wanted)) found.push({ x, y });
+          }
+          if (Array.isArray(o.list)) walk(o.list, x, y);
+        }
+      };
+      walk(scene.children.list, 0, 0);
+      return found[0] ?? null;
+    }, [sceneKey, label] as const);
+    if (!spot) throw new Error(`nothing labelled "${label}" in ${sceneKey}`);
+    await this.tap(spot.x, spot.y);
+  }
+
   /* ------------------------------------------------------------ helpers --- */
 
   /**
@@ -621,12 +926,18 @@ export class Game {
       plan: ['pool', 'restaurant', 'room'],
       step: 0,
       at: 'lobby',
+      heading: null,
       since: 0,
       settledAt: null,
+      done: false,
       gaveUp: false,
       lounger: null,
+      inBed: false,
       order: [],
       served: [],
+      extras: [],
+      extrasGot: [],
+      wearing: null,
       ...patch,
     };
   }
@@ -655,19 +966,71 @@ export class Game {
     };
   }
 
+  /**
+   * A guest who has had their swim, meal or night's sleep and wants to be led on — the
+   * moment a stay at the pool or in a room is paid for, and in Lær mode the moment that
+   * asks a question. Their next stop is the restaurant unless the patch says otherwise.
+   */
+  static guestDoneAt(
+    at: 'pool' | 'restaurant' | 'room',
+    patch: Record<string, unknown> = {}
+  ): Record<string, unknown> {
+    const seed = Game.guestWaitingAt(at, {
+      plan: at === 'restaurant' ? ['restaurant', 'pool'] : [at, 'restaurant'],
+      settledAt: 1,
+      done: true,
+      lounger: at === 'pool' ? 0 : null,
+      inBed: at === 'room',
+      served: at === 'restaurant' ? ['Suppe'] : [],
+      ...patch,
+    });
+    return {
+      ...seed,
+      ...(at === 'pool' ? { pool: { towels: [true, false, false, false] } } : {}),
+    };
+  }
+
+  /**
+   * Guests at the restaurant tables, each waiting for one dish that is already cooked.
+   * Every one of them is a finished order — the kitchen's job, and its question — away.
+   */
+  static seatedGuests(count: number, dish = 'Suppe'): Record<string, unknown> {
+    return {
+      guests: Array.from({ length: count }, (_, i) => Game.guest(i, {
+        checkedIn: true, roomNumber: i % 3, plan: ['restaurant', 'pool'], at: 'restaurant', order: [dish],
+      })),
+      rooms: Array.from({ length: 3 }, (_, i) => ({
+        bedMade: false, curtainsOpen: false, flowersPlaced: false,
+        vacuumed: false, towelsFolded: false, guestId: i < count ? i : null, theme: i,
+      })),
+      nextGuestId: count,
+      kitchen: {
+        recipe: null, added: [], showingDining: true,
+        ready: Array(count).fill(dish), dishesServed: 0,
+      },
+    };
+  }
+
   /** The guests in the save, which is where the whole day is recorded. */
   async guests(): Promise<any[]> {
     return (await this.save())?.guests ?? [];
   }
 
-  /** Seeds a save before the page loads, to reach a state without grinding for it. */
+  /**
+   * Seeds a save before the page loads, to reach a state without grinding for it. It is
+   * `Game.PLAYER`'s save, and they are the one who played last, so the title screen already
+   * obeys its sound settings.
+   */
   static async openWithSave(page: Page, patch: Record<string, unknown>): Promise<Game> {
-    const game = new Game(page);
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    await Game.installAudioSpy(page);
-    await page.addInitScript((seed) => {
-      window.localStorage.setItem('sommer-hotellet-save', JSON.stringify(seed));
-    }, {
+    return Game.openWithStorage(page, {
+      ...Game.players([Game.PLAYER]),
+      [saveKeyFor(Game.PLAYER.id)]: Game.saveWith(patch),
+    });
+  }
+
+  /** A whole version-4 save: a fresh hotel with `patch` on top. */
+  static saveWith(patch: Record<string, unknown>): Record<string, unknown> {
+    return {
       version: 4,
       stars: 0,
       guests: [],
@@ -685,10 +1048,7 @@ export class Game {
       settings: { mode: 'leg', matematik: true, dansk: true, voices: false, sound: true, music: false },
       skills: {},
       ...patch,
-    });
-    await page.goto('/');
-    await game.waitForScene('MainMenuScene');
-    return game;
+    };
   }
 
   expectNoErrors(): void {
@@ -710,20 +1070,23 @@ const SCENE_FOR_AREA = {
   kitchen: 'KitchenScene',
   pool: 'PoolScene',
   garden: 'GardenScene',
+  boutique: 'BoutiqueScene',
 } as const;
 
 /** Game-coordinate click targets, kept next to the scenes they belong to. */
 export const AT = {
-  playButton: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.82 },
-  exitButton: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.93 },
+  // The player cards move with how many players there are, so they are found by
+  // `pickPlayer()` rather than listed here.
+  exitButton: { x: 72, y: 38 },
   back: { x: 56, y: 34 },
 
   map: {
     lobby: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.55 },
     rooms: { x: GAME_WIDTH / 2 - 200, y: GAME_HEIGHT * 0.37 },
     kitchen: { x: GAME_WIDTH / 2 + 200, y: GAME_HEIGHT * 0.37 },
-    pool: { x: GAME_WIDTH / 2 - 178, y: GAME_HEIGHT * 0.79 },
-    garden: { x: GAME_WIDTH / 2 + 178, y: GAME_HEIGHT * 0.79 },
+    pool: { x: GAME_WIDTH / 2 - 190, y: GAME_HEIGHT * 0.79 },
+    garden: { x: GAME_WIDTH / 2 + 190, y: GAME_HEIGHT * 0.79 },
+    boutique: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.79 },
   },
 
   room: {
@@ -738,8 +1101,8 @@ export const AT = {
 
   kitchen: {
     toggle: { x: 200, y: 34 },
-    recipe1: { x: 110, y: 132 },
-    recipe2: { x: 315, y: 132 },
+    recipe1: { x: 110, y: 146 },
+    recipe2: { x: 315, y: 146 },
     ingredient1: { x: GAME_WIDTH / 2 - 200, y: GAME_HEIGHT * 0.8 },
     ingredient2: { x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.8 },
     ingredient3: { x: GAME_WIDTH / 2 + 200, y: GAME_HEIGHT * 0.8 },
@@ -748,10 +1111,11 @@ export const AT = {
   },
 
   pool: {
-    lounger1: { x: 88, y: GAME_HEIGHT * 0.44 },
-    lounger2: { x: 88, y: GAME_HEIGHT * 0.72 },
+    lounger1: { x: 88, y: GAME_HEIGHT * 0.4 },
+    lounger2: { x: 88, y: GAME_HEIGHT * 0.62 },
     lounger3: { x: GAME_WIDTH - 88, y: GAME_HEIGHT * 0.58 },
     lounger4: { x: GAME_WIDTH - 88, y: GAME_HEIGHT * 0.86 },
+    iceStand: { x: 112, y: GAME_HEIGHT * 0.875 - 20 },
   },
 
   garden: {
@@ -766,7 +1130,7 @@ export const AT = {
     leaving1: { x: GAME_WIDTH - 128, y: GAME_HEIGHT * 0.76 },
   },
 
-  shop: { x: GAME_WIDTH - 74, y: 86 },
+  shop: { x: GAME_WIDTH - 90, y: 98 },
   shopTabThings: { x: GAME_WIDTH / 2 - 95, y: 140 },
   shopTabHotel: { x: GAME_WIDTH / 2 + 95, y: 140 },
   settings: { x: 56, y: 86 },

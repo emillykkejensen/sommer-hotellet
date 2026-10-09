@@ -1,15 +1,20 @@
 import Phaser from 'phaser';
 import { COLORS, DEPTH, FONT, INK, INK_SOFT, LINE, SIZE, text } from '../config';
 import {
-  addBirds, badge, bunting, drawBalloon, drawCloud, drawPalm, drawStarShape, drawSun,
+  addBirds, badge, bunting, drawBalloon, drawCloud, drawHead, drawPalm, drawStarShape, drawSun,
   drawTree, gradientBand, paintFlower, plate, shade, shadow, sheen, tappable,
 } from '../helpers/Draw';
 import { addBackButton, addSceneTitle, addStarCounter } from '../ui/Chrome';
 import { bob, dur, popIn, reduceMotion, transition } from '../helpers/Motion';
 import { flatten } from '../helpers/Flatten';
 import { audio } from '../helpers/Audio';
-import { GuestAt, gameState } from '../state/GameState';
+import { BOUTIQUE_ID, Destination, GuestData, gameState } from '../state/GameState';
 import { SHOP_ITEMS } from '../state/Shop';
+import {
+  IconPainter, paintBed, paintBell, paintBoutique, paintGardenFlower, paintPlate,
+  paintWaves,
+} from '../objects/Icons';
+import { playerTag } from '../ui/Players';
 
 interface Area {
   label: string;
@@ -17,10 +22,15 @@ interface Area {
   color: number;
   x: number;
   y: number;
-  /** Which guests are waiting for something here. */
-  waitingAt: GuestAt[];
-  icon: (g: Phaser.GameObjects.Graphics) => void;
+  /** How many guests need the player in there right now. */
+  waiting: () => number;
+  /** The guests' destination this area is, if any — followers point at it. */
+  destination: Destination | null;
+  icon: IconPainter;
 }
+
+/** How wide an area sign is. Wide enough for "Restaurant" next to its icon. */
+const AREA_W = 176;
 
 export class HotelMapScene extends Phaser.Scene {
   /** Rebuilt whenever the guest clock moves — badges and the status line. */
@@ -69,25 +79,42 @@ export class HotelMapScene extends Phaser.Scene {
       this.tweens.add({ targets: cloud, x: '+=110', duration: 16000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     }
 
+    // Each sign carries the same word and the same picture the guests use for the place, so
+    // a guest who wants "restauranten" — and shows a plate — sends you to the plate.
+    const needs = (at: GuestData['at']) => () =>
+      gameState.guestsAt(at).filter(g => gameState.needsPlayer(g)).length;
     this.areas = [
       { label: 'Lobby', scene: 'LobbyScene', color: COLORS.orange,
-        x: width / 2, y: height * 0.55, waitingAt: ['lobby', 'checkout'], icon: g => this.iconBell(g) },
+        x: width / 2, y: height * 0.55, destination: 'checkout', icon: paintBell,
+        waiting: () => gameState.lobbyGuests().length + gameState.guestsAt('checkout').length },
       { label: 'Værelser', scene: 'RoomScene', color: COLORS.purple,
-        x: width / 2 - 200, y: height * 0.37, waitingAt: ['room'], icon: g => this.iconBed(g) },
-      { label: 'Køkken', scene: 'KitchenScene', color: COLORS.red,
-        x: width / 2 + 200, y: height * 0.37, waitingAt: ['restaurant'], icon: g => this.iconPot(g) },
+        x: width / 2 - 200, y: height * 0.37, destination: 'room', icon: paintBed,
+        waiting: needs('room') },
+      { label: 'Restaurant', scene: 'KitchenScene', color: COLORS.red,
+        x: width / 2 + 200, y: height * 0.37, destination: 'restaurant', icon: paintPlate,
+        waiting: needs('restaurant') },
       { label: 'Pool', scene: 'PoolScene', color: COLORS.water,
-        x: width / 2 - 178, y: height * 0.79, waitingAt: ['pool'], icon: g => this.iconWave(g) },
+        x: width / 2 - 190, y: height * 0.79, destination: 'pool', icon: paintWaves,
+        waiting: needs('pool') },
       { label: 'Have', scene: 'GardenScene', color: COLORS.green,
-        x: width / 2 + 178, y: height * 0.79, waitingAt: [], icon: g => this.iconLeaf(g) },
+        x: width / 2 + 190, y: height * 0.79, destination: null, icon: paintGardenFlower,
+        waiting: () => 0 },
     ];
+    if (gameState.owns(BOUTIQUE_ID)) {
+      // Nobody stays in the boutique; its badge counts the clothes guests are waiting for.
+      this.areas.push({ label: 'Tøjbutik', scene: 'BoutiqueScene', color: COLORS.pink,
+        x: width / 2, y: height * 0.79, destination: null, icon: (g, s) => paintBoutique(g, (s ?? 1) * 1.15),
+        waiting: () => gameState.wantedGarments()
+          .filter(k => !gameState.boutique.ready.includes(k)).length });
+    }
     this.areas.forEach((a, i) => this.createAreaButton(a, i));
 
     // The map is one step in from the title screen, and there was no way back on screen —
     // only Android's hardware button, which a browser and a tablet do not have.
-    addBackButton(this, 'MainMenuScene', 'Forside');
+    const back = addBackButton(this, 'MainMenuScene', 'Forside');
 
-    addSceneTitle(this, 'Sommer Hotellet', COLORS.roof);
+    const title = addSceneTitle(this, 'Sommer Hotellet', COLORS.roof);
+    this.addPlayerTag(back, title);
     addStarCounter(this);
     this.addShopButton();
     this.addSettingsButton();
@@ -164,12 +191,25 @@ export class HotelMapScene extends Phaser.Scene {
     return g;
   }
 
+  /**
+   * Whose hotel this is: the player's animal and name, right beside the way back to the
+   * cards. Two siblings taking turns otherwise have no way to tell their hotels apart.
+   * It fills the gap between the back button and the title, and shrinks a long name to fit.
+   */
+  private addPlayerTag(back: Phaser.GameObjects.Container, title: Phaser.GameObjects.Container): void {
+    const profile = gameState.profile;
+    if (!profile) return;
+    const left = back.x + back.width / 2 + 8;
+    const titleLeft = title.x - (title.width * title.scaleX) / 2;
+    playerTag(this, profile, left, back.y, titleLeft - 8 - left).setDepth(DEPTH.chrome);
+  }
+
   /** Entry to the star shop, sitting under the counter it spends from. */
   private addShopButton(): void {
-    const w = 124;
+    const w = 156;
     const h = 38;
     const lip = 4;
-    const c = this.add.container(this.scale.width - 74, 98).setDepth(DEPTH.chrome);
+    const c = this.add.container(this.scale.width - 90, 98).setDepth(DEPTH.chrome);
 
     const g = this.add.graphics();
     shadow(g, -w / 2, -h / 2, w, h + lip, h / 2, 3, 0.2);
@@ -178,7 +218,7 @@ export class HotelMapScene extends Phaser.Scene {
     sheen(g, -w / 2, -h / 2, w, h, h / 2, 0.28);
     c.add(g);
 
-    const t = this.add.text(8, 0, 'Butik', text(SIZE.label, '#FFFFFF', 'bold')).setOrigin(0.5);
+    const t = this.add.text(12, 0, 'Stjernebutik', text(SIZE.label, '#FFFFFF', 'bold')).setOrigin(0.5);
     t.setShadow(0, 1.5, 'rgba(74,58,44,0.5)', 0, false, true);
     c.add(t);
 
@@ -232,14 +272,57 @@ export class HotelMapScene extends Phaser.Scene {
   private refreshHud(): void {
     this.hud.removeAll(true);
     for (const area of this.areas) this.addAreaBadge(area);
+    this.addFollowers();
     this.addStatusStrip();
   }
 
+  /**
+   * The guests walking with the player, standing by the sign of the place they want to go.
+   *
+   * This is the whole of the navigation for a child leading a guest: find the face, tap
+   * the sign it is pointing at.
+   */
+  private addFollowers(): void {
+    const byArea = new Map<Area, GuestData[]>();
+    for (const guest of gameState.followers()) {
+      const area = this.areas.find(a => a.destination !== null && a.destination === guest.heading);
+      if (!area) continue;
+      byArea.set(area, [...(byArea.get(area) ?? []), guest]);
+    }
+
+    for (const [area, guests] of byArea) {
+      guests.forEach((guest, i) => {
+        const x = area.x - AREA_W / 2 - 30 - i * 44;
+        const y = area.y - 2;
+        const c = this.add.container(x, y);
+        const g = this.add.graphics();
+        shadow(g, -20, -20, 40, 40, 20, 3, 0.2);
+        plate(g, -20, -20, 40, 40, 20, COLORS.white, 1, LINE.base);
+        c.add(g);
+        c.add(drawHead(this, 0, 8, guest.color, 0.9, guest.id, guest.wearing));
+        this.hud.add(c);
+        if (!reduceMotion()) {
+          this.tweens.add({ targets: c, x: x + 7, duration: 520, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+        }
+      });
+
+      // a ring round the sign they are waiting to go through
+      const ring = this.add.graphics().setPosition(area.x, area.y);
+      ring.lineStyle(4, COLORS.sun, 0.9);
+      ring.strokeRoundedRect(-AREA_W / 2 - 8, -34, AREA_W + 16, 72, 22);
+      this.hud.add(ring);
+      if (!reduceMotion()) {
+        this.tweens.add({ targets: ring, alpha: 0.25, duration: 600, yoyo: true, repeat: -1 });
+      }
+
+    }
+  }
+
   private addAreaBadge(area: Area): void {
-    const waiting = area.waitingAt.reduce((sum, at) => sum + this.waitingCount(at), 0);
+    const waiting = area.waiting();
     if (waiting === 0) return;
 
-    const x = area.x + 70;
+    const x = area.x + 78;
     const y = area.y - 26;
 
     // Disc and label go into the hud as siblings rather than inside a container: the test
@@ -266,11 +349,6 @@ export class HotelMapScene extends Phaser.Scene {
     }
   }
 
-  private waitingCount(at: GuestAt): number {
-    if (at === 'lobby') return gameState.getWaitingGuests().length;
-    return gameState.guestsAt(at).filter(g => g.settledAt === null).length;
-  }
-
   /**
    * A one-line read on the hotel, so the map is not just five buttons.
    *
@@ -282,8 +360,10 @@ export class HotelMapScene extends Phaser.Scene {
     const staying = gameState.getCheckedInGuests().length;
     const free = gameState.rooms.slice(0, gameState.roomCount).filter(r => r.guestId === null).length;
 
+    const following = gameState.followers().length;
     const parts = [`${staying} gæster bor her`, `${free} ledige værelser`];
     if (waiting > 0) parts.push(`${waiting} venter i lobbyen`);
+    if (following > 0) parts.push(`${following} følger dig`);
 
     const t = this.add.text(0, 0, parts.join('   ·   '), text(SIZE.label, INK, 'bold'))
       .setOrigin(0.5);
@@ -377,7 +457,7 @@ export class HotelMapScene extends Phaser.Scene {
    * icon, and the guest badge lands on the corner.
    */
   private createAreaButton(area: Area, index: number): void {
-    const w = 158;
+    const w = AREA_W;
     const h = 52;
     const lip = 6;
     const c = this.add.container(area.x, area.y).setDepth(DEPTH.dynamic);
@@ -403,8 +483,11 @@ export class HotelMapScene extends Phaser.Scene {
     area.icon(icon);
     face.add(icon);
 
-    const label = this.add.text(20, 0, area.label, text(SIZE.heading, '#FFFFFF', 'bold')).setOrigin(0.5);
+    const labelX = (-w / 2 + 54 + w / 2 - 10) / 2;
+    const label = this.add.text(labelX, 0, area.label, text(SIZE.heading, '#FFFFFF', 'bold')).setOrigin(0.5);
     label.setShadow(0, 2, 'rgba(74,58,44,0.5)', 0, false, true);
+    const room = w - 64;
+    if (label.width > room) label.setScale(room / label.width);
     face.add(label);
     c.add(face);
 
@@ -444,79 +527,5 @@ export class HotelMapScene extends Phaser.Scene {
         onComplete: () => transition(this, area.scene),
       });
     });
-  }
-
-  // ---------- area icons ----------
-
-  private iconBell(g: Phaser.GameObjects.Graphics): void {
-    g.fillStyle(COLORS.stone);
-    g.fillRoundedRect(-11, 6, 22, 4, 2);
-    g.fillStyle(COLORS.sunDeep);
-    g.fillCircle(0, 0, 10);
-    g.fillStyle(COLORS.sun);
-    g.fillCircle(-0.5, -1, 8.5);
-    g.fillStyle(COLORS.white, 0.6);
-    g.fillEllipse(-3, -4, 5, 3);
-    g.fillStyle(COLORS.sunDeep);
-    g.fillCircle(0, -11, 3);
-    g.lineStyle(LINE.hair, COLORS.outline, 0.85);
-    g.strokeCircle(0, 0, 10);
-  }
-
-  private iconBed(g: Phaser.GameObjects.Graphics): void {
-    g.fillStyle(COLORS.wood);
-    g.fillRoundedRect(-13, -1, 26, 9, 3);
-    g.fillStyle(COLORS.woodDeep);
-    g.fillRoundedRect(-14, -8, 5, 16, 2);
-    g.fillStyle(COLORS.pink);
-    g.fillRoundedRect(-4, -5, 17, 8, 3);
-    g.fillStyle(COLORS.white);
-    g.fillRoundedRect(-9, -5, 7, 6, 2.5);
-    g.lineStyle(LINE.hair, COLORS.outline, 0.85);
-    g.strokeRoundedRect(-13, -1, 26, 9, 3);
-    g.strokeRoundedRect(-4, -5, 17, 8, 3);
-  }
-
-  private iconPot(g: Phaser.GameObjects.Graphics): void {
-    g.fillStyle(0x827D78);
-    g.fillRoundedRect(-10, -3, 20, 13, { tl: 2, tr: 2, bl: 5, br: 5 });
-    g.fillStyle(0x5C5854);
-    g.fillRoundedRect(-12, -6, 24, 4, 2);
-    g.lineStyle(LINE.hair, COLORS.outline, 0.85);
-    g.strokeRoundedRect(-10, -3, 20, 13, { tl: 2, tr: 2, bl: 5, br: 5 });
-    g.fillStyle(COLORS.white, 0.7);
-    g.fillCircle(-4, -11, 3);
-    g.fillCircle(2, -13, 2.4);
-  }
-
-  private iconWave(g: Phaser.GameObjects.Graphics): void {
-    g.fillStyle(COLORS.waterLight);
-    g.fillCircle(0, 0, 11);
-    g.lineStyle(2.4, COLORS.waterDeep, 0.9);
-    [-4, 1, 6].forEach(dy => {
-      g.beginPath();
-      g.moveTo(-9, dy);
-      for (let x = -9; x <= 9; x += 3) g.lineTo(x, dy + Math.sin(x * 0.55) * 2);
-      g.strokePath();
-    });
-    g.lineStyle(LINE.hair, COLORS.outline, 0.85);
-    g.strokeCircle(0, 0, 11);
-  }
-
-  private iconLeaf(g: Phaser.GameObjects.Graphics): void {
-    g.lineStyle(2.2, COLORS.grassDeep);
-    g.beginPath();
-    g.moveTo(0, 11);
-    g.lineTo(0, 1);
-    g.strokePath();
-    for (let i = 0; i < 5; i++) {
-      const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
-      g.fillStyle(COLORS.pink);
-      g.fillCircle(Math.cos(a) * 5.5, Math.sin(a) * 5.5 - 2, 5);
-      g.lineStyle(1.2, COLORS.outline, 0.6);
-      g.strokeCircle(Math.cos(a) * 5.5, Math.sin(a) * 5.5 - 2, 5);
-    }
-    g.fillStyle(COLORS.sun);
-    g.fillCircle(0, -2, 3.4);
   }
 }

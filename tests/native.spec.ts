@@ -12,15 +12,6 @@ import { AT, Game } from './game';
 
 const NAVIGATION = '/src/helpers/Navigation.ts';
 
-/** A sandcastle one storey short of finished — the garden's task-raising job. */
-const ALMOST_BUILT = {
-  garden: {
-    flowers: [false, false, false, false, false],
-    sandcastle: 2,
-    apples: [false, false, false, false, false],
-  },
-};
-
 test('the hardware back button goes where the on-screen arrow goes', async ({ page }) => {
   const game = await Game.openWithSave(page, {
     settings: { mode: 'leg', matematik: true, dansk: true, voices: false, sound: false, music: false },
@@ -61,13 +52,13 @@ test('back cannot skip a task that has already been earned', async ({ page }) =>
   // The chore is done by the time the task appears, so dismissing it would eat the stars
   // it owes. There is no cancel on screen either.
   const game = await Game.openWithSave(page, {
-    ...ALMOST_BUILT,
+    ...Game.guestDoneAt('room'),
     settings: { mode: 'laer', matematik: true, dansk: true, voices: false, sound: false, music: false },
     skills: Game.focusSkill('mønstre'),
   });
   await game.start();
-  await game.enter('garden');
-  await game.tap(AT.garden.sandbox.x, AT.garden.sandbox.y);
+  await game.enter('rooms');
+  await game.helpGuest(0, 'Følg med mig');
   expect(await game.waitForTask()).toBe(true);
 
   const result = await page.evaluate(async (url) => {

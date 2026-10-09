@@ -83,13 +83,14 @@ export class ShopScene extends BaseScene {
         this.buildCard(item, startX + col * stepX, 262 + row * (cardH + 16), cardW, cardH);
       });
       this.dyn(this.add.text(width / 2, height - 20,
-        'Tingene dukker op i rummene, når du har købt dem',
+        // "rummene" read as the guest rooms, which are "værelser" everywhere else
+        'Tingene dukker op rundt om i hotellet, når du har købt dem',
         text(SIZE.tiny, INK_SOFT, 'semibold')).setOrigin(0.5));
       return;
     }
 
     const upgradeCols = Math.ceil(SHOP_UPGRADES.length / 2);
-    const cardW = 212;
+    const cardW = Math.min(212, Math.floor((width - 40) / upgradeCols) - 16);
     const cardH = 168;
     const stepX = cardW + 16;
     const startX = width / 2 - ((upgradeCols - 1) * stepX) / 2;

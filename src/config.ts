@@ -1,16 +1,25 @@
 /**
- * Logical game size.
+ * Logical game size — the smallest the stage gets.
  *
- * The canvas is scaled to FIT whatever it is given, so this is really a zoom control: a
- * smaller logical stage means every drawn shape and every label covers more of the screen.
- * It was 960x600, which on a phone held at arm's length by a five-year-old put the body
- * text at around 3mm tall. Shrinking the stage ~9% and putting the type scale up ~12% on
- * top of it lands everything roughly a fifth bigger without redrawing a single shape.
+ * The canvas is scaled to fit the screen, so this is really a zoom control: a smaller
+ * logical stage means every drawn shape and every label covers more of the screen. It was
+ * 960x600, which on a phone held at arm's length by a five-year-old put the body text at
+ * around 3mm tall. Shrinking the stage ~9% and putting the type scale up ~12% on top of it
+ * lands everything roughly a fifth bigger without redrawing a single shape.
  *
- * The 1.6 aspect ratio is deliberate — changing it would letterbox instead of zoom.
+ * The stage then takes the screen's shape (helpers/Stage): wider than this on a phone,
+ * taller on a tablet, never smaller. Scenes lay out from `scale.width`/`scale.height`, never
+ * from these two numbers.
  */
 export const GAME_WIDTH = 880;
 export const GAME_HEIGHT = 550;
+
+/**
+ * How far the stage stretches before it letterboxes instead: about 2.4:1 at the wide end
+ * (wider than any phone held sideways, address bar and all) and 1.25:1 at the tall end.
+ */
+export const MAX_STAGE_WIDTH = 1320;
+export const MAX_STAGE_HEIGHT = 704;
 
 /**
  * Palette.

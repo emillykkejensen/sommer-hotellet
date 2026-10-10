@@ -1,13 +1,13 @@
 import Phaser from 'phaser';
 import { COLORS, DEPTH, INK, LINE, SIZE, text } from '../config';
 import { Destination, GuestData, gameState } from '../state/GameState';
-import { extraPhrase, giveLabel, isIce } from '../state/Extras';
+import { extraPhrase, garmentPhrase, giveLabel, isIce } from '../state/Extras';
 import { recipeColor } from '../state/Menu';
 import { audio } from '../helpers/Audio';
 import { plate, shadow } from '../helpers/Draw';
 import {
-  destinationIcon, paintArrow, paintBed, paintBoutique, paintExtra, paintIce, paintKey,
-  paintLounger, paintPlate, paintSuitcase,
+  destinationIcon, paintArrow, paintBed, paintExtra, paintKey, paintLounger, paintPlate,
+  paintSuitcase,
 } from './Icons';
 import { reduceMotion } from '../helpers/Motion';
 
@@ -27,6 +27,7 @@ export function placeName(place: Destination): string {
     case 'pool': return 'poolen';
     case 'restaurant': return 'restauranten';
     case 'room': return 'værelset';
+    case 'boutique': return 'tøjbutikken';
     case 'checkout': return 'lobbyen';
   }
 }
@@ -37,6 +38,7 @@ function goingTo(place: Destination): string {
     case 'pool': return 'i poolen';
     case 'restaurant': return 'i restauranten';
     case 'room': return 'op på mit værelse';
+    case 'boutique': return 'i tøjbutikken';
     case 'checkout': return 'i lobbyen og tjekke ud';
   }
 }
@@ -122,6 +124,7 @@ export function guestLine(guest: GuestData, now = Date.now()): GuestLine {
     }
     const thanks = guest.at === 'pool' ? 'Det var dejligt at bade!'
       : guest.at === 'restaurant' ? 'Tak for mad!'
+      : guest.at === 'boutique' ? 'Tak! Den vil jeg have på hele ferien.'
       : 'Godmorgen! Jeg har sovet godt.';
     return { text: `${thanks} ${onward}`, tone: 'happy' };
   }
@@ -144,6 +147,14 @@ export function guestLine(guest: GuestData, now = Date.now()): GuestLine {
       return phase === 'impatient'
         ? { text: `Kommer der snart ${listDishes(left)}?`, tone: 'grumpy' }
         : { text: `${listDishes(left, true)}, tak!`, tone: 'idle' };
+    }
+
+    case 'boutique': {
+      if (phase === 'happy') return { text: 'Se mig! Er den ikke flot?', tone: 'happy' };
+      const wants = listWords(gameState.outstandingExtras(guest).map(garmentPhrase));
+      return phase === 'impatient'
+        ? { text: `Jeg har ventet længe på ${wants}!`, tone: 'grumpy' }
+        : { text: `Hej! Jeg vil gerne købe ${wants}.`, tone: 'idle' };
     }
 
     case 'room':
@@ -196,9 +207,11 @@ export function guestThought(guest: GuestData, now = Date.now()): Thought | null
   switch (guest.at) {
     case 'pool':
       if (guest.lounger === null) icons.push((g, s) => paintLounger(g, s));
-      for (const key of gameState.outstandingExtras(guest)) {
-        icons.push(isIce(key) ? (g, s) => paintIce(g, s) : (g, s) => paintBoutique(g, s));
-      }
+      for (const key of gameState.outstandingExtras(guest)) icons.push((g, s) => paintExtra(g, s, key));
+      break;
+    case 'boutique':
+      // The very thing, in its colour: the bubble is the order a pre-reader copies from.
+      for (const key of gameState.outstandingExtras(guest)) icons.push((g, s) => paintExtra(g, s * 1.25, key));
       break;
     case 'restaurant':
       icons.push((g, s) => paintPlate(g, s));
@@ -378,6 +391,22 @@ export function guestCard(guest: GuestData, now = Date.now()): CardModel {
       }
       const notReady = [...new Set(left)].filter(d => !gameState.kitchen.ready.includes(d));
       if (notReady.length > 0) hint = `${listDishes(notReady, true)} skal laves i køkkenet.`;
+      break;
+    }
+
+    case 'boutique': {
+      for (const key of guest.extras) {
+        wants.push({
+          kind: 'icon',
+          paint: (g, s) => paintExtra(g, s * 1.25, key),
+          done: !gameState.outstandingExtras(guest).includes(key),
+        });
+      }
+      if (phase === 'happy') break;
+      for (const key of new Set(gameState.outstandingExtras(guest))) {
+        if (gameState.extraReady(key)) actions.push({ kind: 'extra', label: giveLabel(key), arg: key });
+        else hint = 'Lav det her i butikken, og læg det på hylden.';
+      }
       break;
     }
 

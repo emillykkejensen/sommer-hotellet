@@ -91,12 +91,13 @@ export abstract class MakerScene extends BaseScene {
     this.buildWishes(96, height * 0.48);
     this.steps.forEach((step, i) => this.buildStep(step, 156 + i * 120));
     this.buildPreview(width - 112, height * 0.36);
-    this.buildCounter(width - 112, height * 0.7);
+    const shelf = this.counterSpot();
+    this.buildCounter(shelf.x, shelf.y);
     this.buildMakeButton(width / 2 + 40, height - 40);
   }
 
   /** What guests are waiting for, so the child has something to copy. */
-  private buildWishes(cx: number, cy: number): void {
+  protected buildWishes(cx: number, cy: number): void {
     const wishes = this.wishes();
     const w = 152;
     const rows = Math.max(1, Math.min(4, wishes.length));
@@ -140,7 +141,6 @@ export abstract class MakerScene extends BaseScene {
     this.dyn(c);
   }
 
-  /** One row of choices: the question on a tag, then a card per option. */
   /** Where the rows of choices start: centred in the room between the wish list and the preview. */
   private stepsLeft(): number {
     const widest = Math.max(...this.steps.map(st => {
@@ -150,6 +150,7 @@ export abstract class MakerScene extends BaseScene {
     return Math.max(200, Math.round((this.scale.width - 20) / 2 - widest / 2));
   }
 
+  /** One row of choices: the question on a tag, then a card per option. */
   private buildStep(step: MakerStep, y: number): void {
     const startX = this.stepsLeft();
     const title = caption(this, 0, y - 60, step.title, this.picked[step.id] ? 'done' : 'idle');
@@ -199,6 +200,11 @@ export abstract class MakerScene extends BaseScene {
 
     this.fillPreview(c, this.picked);
     this.dyn(c);
+  }
+
+  /** Where the counter stands: what has been made leaves from here when it is handed over. */
+  protected counterSpot(): { x: number; y: number } {
+    return { x: this.scale.width - 112, y: this.scale.height * 0.7 };
   }
 
   /** What has been made, waiting for its guest. Tapping one throws it away. */

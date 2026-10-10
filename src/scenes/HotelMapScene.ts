@@ -27,6 +27,11 @@ interface Area {
   /** The guests' destination this area is, if any — followers point at it. */
   destination: Destination | null;
   icon: IconPainter;
+  /**
+   * Which side of the sign a guest waiting to be taken in stands on. Left, unless that would
+   * put them on another sign — the boutique sits between the pool and the garden.
+   */
+  followersAbove?: boolean;
 }
 
 /** How wide an area sign is. Wide enough for "Restaurant" next to its icon. */
@@ -101,11 +106,10 @@ export class HotelMapScene extends Phaser.Scene {
         waiting: () => 0 },
     ];
     if (gameState.owns(BOUTIQUE_ID)) {
-      // Nobody stays in the boutique; its badge counts the clothes guests are waiting for.
       this.areas.push({ label: 'Tøjbutik', scene: 'BoutiqueScene', color: COLORS.pink,
-        x: width / 2, y: height * 0.79, destination: null, icon: (g, s) => paintBoutique(g, (s ?? 1) * 1.15),
-        waiting: () => gameState.wantedGarments()
-          .filter(k => !gameState.boutique.ready.includes(k)).length });
+        x: width / 2, y: height * 0.79, destination: 'boutique', followersAbove: true,
+        icon: (g, s) => paintBoutique(g, (s ?? 1) * 1.15),
+        waiting: needs('boutique') });
     }
     this.areas.forEach((a, i) => this.createAreaButton(a, i));
 
@@ -292,8 +296,10 @@ export class HotelMapScene extends Phaser.Scene {
 
     for (const [area, guests] of byArea) {
       guests.forEach((guest, i) => {
-        const x = area.x - AREA_W / 2 - 30 - i * 44;
-        const y = area.y - 2;
+        const x = area.followersAbove
+          ? area.x + (i - (guests.length - 1) / 2) * 44
+          : area.x - AREA_W / 2 - 30 - i * 44;
+        const y = area.followersAbove ? area.y - 62 : area.y - 2;
         const c = this.add.container(x, y);
         const g = this.add.graphics();
         shadow(g, -20, -20, 40, 40, 20, 3, 0.2);

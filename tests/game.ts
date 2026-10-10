@@ -944,7 +944,7 @@ export class Game {
 
   /** A guest checked into room 0 and standing somewhere, waiting for the player. */
   static guestWaitingAt(
-    at: 'pool' | 'restaurant' | 'room' | 'checkout',
+    at: 'pool' | 'restaurant' | 'room' | 'boutique' | 'checkout',
     patch: Record<string, unknown> = {}
   ): { guests: Record<string, unknown>[]; rooms: Record<string, unknown>[]; nextGuestId: number } {
     const plan: string[] = at === 'checkout' ? ['pool', 'restaurant', 'room'] : [at];
@@ -1143,4 +1143,5 @@ export const AT = {
   toggleSound: { x: GAME_WIDTH / 2 - 134, y: 258 },
   toggleVoices: { x: GAME_WIDTH / 2 + 134, y: 258 },
   toggleMusic: { x: GAME_WIDTH / 2 - 134, y: 306 },
+  togglePatient: { x: GAME_WIDTH / 2 + 134, y: 306 },
 } as const;

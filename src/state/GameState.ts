@@ -9,8 +9,11 @@ export type Chore = 'bedMade' | 'curtainsOpen' | 'flowersPlaced' | 'vacuumed' | 
 
 export const CHORES: Chore[] = ['bedMade', 'curtainsOpen', 'flowersPlaced', 'vacuumed', 'towelsFolded'];
 
-/** The three things a guest comes to the hotel to do, in whatever order they fancy. */
-export type Place = 'pool' | 'restaurant' | 'room';
+/**
+ * The places a guest can spend part of their day: a swim, a meal, a night's sleep, and —
+ * once it has been bought — a trip to the boutique for something to wear.
+ */
+export type Place = 'pool' | 'restaurant' | 'room' | 'boutique';
 
 /** Where a guest can be led: one of their stops, or back to the desk to check out. */
 export type Destination = Place | 'checkout';
@@ -57,7 +60,10 @@ export interface GuestData {
   color: number;
   roomNumber: number | null;
   checkedIn: boolean;
-  /** Where they intend to go, in order. Shuffled per guest, so no two stays are alike. */
+  /**
+   * Where they intend to go, in order. Drawn per guest — which places, as well as their
+   * order — so one guest wants a swim and an early night while the next eats twice.
+   */
   plan: Place[];
   /** How far through the plan they are. */
   step: number;
@@ -82,7 +88,7 @@ export interface GuestData {
   /** An ice cream or something to wear, asked for at this stop, and what has arrived. */
   extras: string[];
   extrasGot: string[];
-  /** What they were given at the boutique; they keep it on for the rest of their stay. */
+  /** What they bought at the boutique; they keep it on for the rest of their stay. */
   wearing: string | null;
 }
 
@@ -144,6 +150,8 @@ export interface Settings {
   voices: boolean;
   sound: boolean;
   music: boolean;
+  /** Guests wait twice as long — for the youngest, who need longer to find the job. */
+  patient: boolean;
 }
 
 /** A job the player finished for a guest, and whether they were quick enough about it. */
@@ -194,9 +202,10 @@ export const MAX_ICES = 3;
 export const MAX_GARMENTS = 4;
 /** The shop upgrade that opens the boutique. */
 export const BOUTIQUE_ID = 'boutique';
-/** How often a guest at the pool fancies an ice cream, or something from the boutique. */
+/** How often a guest at the pool fancies an ice cream. */
 const ICE_CHANCE = 0.5;
-const GARMENT_CHANCE = 0.45;
+/** How much longer guests wait with "Tålmodige gæster" switched on. */
+export const PATIENT_FACTOR = 2;
 /** Every recipe has the same number of ingredients; the map's counter relies on it. */
 export const RECIPE_STEPS = 3;
 
@@ -213,6 +222,20 @@ const GUEST_COLORS = [
 ];
 
 const ALL_PLACES: Place[] = ['pool', 'restaurant', 'room'];
+
+/**
+ * How likely a guest is to want each place, besides the room they have booked.
+ *
+ * Every guest used to want all three of pool, restaurant and room, so the only thing that
+ * told one stay from the next was the order — and to a child, that is the same three trips
+ * every time. Now a stay is two to five stops: some guests skip the pool, some never eat
+ * here, some come back for a second meal, and once the boutique is open many go shopping.
+ */
+const POOL_CHANCE = 0.7;
+const RESTAURANT_CHANCE = 0.75;
+const BOUTIQUE_CHANCE = 0.6;
+/** A guest who has already eaten here coming back for another meal later in the day. */
+const SECOND_MEAL_CHANCE = 0.2;
 
 function shuffled<T>(items: T[]): T[] {
   const out = [...items];
@@ -303,7 +326,9 @@ class GameState {
   }
 
   private freshSettings(): Settings {
-    return { mode: 'leg', matematik: true, dansk: true, voices: true, sound: true, music: true };
+    return {
+      mode: 'leg', matematik: true, dansk: true, voices: true, sound: true, music: true, patient: false,
+    };
   }
 
   // ---------- shop ----------
@@ -375,7 +400,7 @@ class GameState {
     this.save();
   }
 
-  toggleSetting(key: 'matematik' | 'dansk' | 'voices' | 'sound' | 'music'): void {
+  toggleSetting(key: 'matematik' | 'dansk' | 'voices' | 'sound' | 'music' | 'patient'): void {
     // Never leave both subjects off — there would be nothing to ask.
     if ((key === 'matematik' || key === 'dansk') && this.settings[key]) {
       const other = key === 'matematik' ? 'dansk' : 'matematik';
@@ -466,7 +491,7 @@ class GameState {
       color: GUEST_COLORS[id % GUEST_COLORS.length],
       roomNumber: null,
       checkedIn: false,
-      plan: shuffled(ALL_PLACES),
+      plan: this.makePlan(),
       step: 0,
       at: 'lobby',
       heading: null,
@@ -485,6 +510,37 @@ class GameState {
     this.guests.push(guest);
     this.save();
     return guest;
+  }
+
+  /**
+   * A day for a new guest: which places they want, and in what order.
+   *
+   * Everybody sleeps in the room they booked; everything else is up to them. Never the same
+   * plan as the guest who arrived just before, either — two identical days in a row is
+   * exactly what makes a hotel feel like a conveyor belt.
+   */
+  private makePlan(): Place[] {
+    const previous = this.guests.length > 0 ? this.guests[this.guests.length - 1].plan.join('>') : null;
+    let plan = this.drawPlan();
+    for (let tries = 0; tries < 8 && plan.join('>') === previous; tries++) plan = this.drawPlan();
+    return plan;
+  }
+
+  private drawPlan(): Place[] {
+    const stops: Place[] = ['room'];
+    if (Math.random() < POOL_CHANCE) stops.push('pool');
+    if (Math.random() < RESTAURANT_CHANCE) stops.push('restaurant');
+    if (this.owns(BOUTIQUE_ID) && Math.random() < BOUTIQUE_CHANCE) stops.push('boutique');
+    // A bed and nothing else is not much of a holiday.
+    if (stops.length === 1) stops.push(Math.random() < 0.5 ? 'pool' : 'restaurant');
+
+    const plan = shuffled(stops);
+    // Hungry again: a second meal, somewhere after the first and never straight after it.
+    const meal = plan.indexOf('restaurant');
+    if (meal !== -1 && meal < plan.length - 1 && Math.random() < SECOND_MEAL_CHANCE) {
+      plan.push('restaurant');
+    }
+    return plan;
   }
 
   /**
@@ -580,7 +636,15 @@ class GameState {
   /** How long this guest will wait where they are, before the star is off the table. */
   patienceMsFor(guest: GuestData): number {
     const extraDishes = guest.at === 'restaurant' ? Math.max(0, guest.order.length - 1) : 0;
-    return PATIENCE_MS + (extraDishes + guest.extras.length) * EXTRA_PATIENCE_PER_ITEM_MS;
+    // At the boutique the garment is the thing they came for, not an extra on top of it.
+    const extras = guest.at === 'boutique' ? Math.max(0, guest.extras.length - 1) : guest.extras.length;
+    const ms = PATIENCE_MS + (extraDishes + extras) * EXTRA_PATIENCE_PER_ITEM_MS;
+    return this.settings.patient ? ms * PATIENT_FACTOR : ms;
+  }
+
+  /** How long past their patience a guest hangs on before giving up on a stop. */
+  get grumpyMs(): number {
+    return this.settings.patient ? GRUMPY_MS * PATIENT_FACTOR : GRUMPY_MS;
   }
 
   guestPhase(guest: GuestData, now = Date.now()): GuestPhase {
@@ -658,7 +722,7 @@ class GameState {
       // Still nothing after the grumpy window: they give up on this stop and want to be
       // taken to the next one. A consequence that left them waiting here for ever would be
       // a deadlock, not a difficulty setting.
-      if (now - guest.since > patience + GRUMPY_MS) {
+      if (now - guest.since > patience + this.grumpyMs) {
         guest.done = true;
         changed = true;
       }
@@ -681,6 +745,7 @@ class GameState {
       case 'pool': return guest.lounger !== null;
       case 'room': return guest.inBed;
       case 'restaurant': return this.outstandingOrder(guest).length === 0;
+      case 'boutique': return this.outstandingExtras(guest).length === 0;
       default: return false;
     }
   }
@@ -701,19 +766,25 @@ class GameState {
     guest.inBed = false;
     guest.order = at === 'restaurant' ? randomOrder() : [];
     guest.served = [];
-    guest.extras = at === 'pool' ? this.poolWishes(guest) : [];
+    guest.extras = at === 'pool' ? this.poolWishes()
+      : at === 'boutique' ? [this.shoppingFor(guest)]
+      : [];
     guest.extrasGot = [];
   }
 
   /** What a guest at the pool fancies besides somewhere to lie down. */
-  private poolWishes(guest: GuestData): string[] {
-    const wishes: string[] = [];
-    if (Math.random() < ICE_CHANCE) wishes.push(randomIce());
-    // Only once the boutique is open, and only once per stay: they keep it on.
-    if (this.owns(BOUTIQUE_ID) && !guest.wearing && Math.random() < GARMENT_CHANCE) {
-      wishes.push(randomGarment());
-    }
-    return wishes;
+  private poolWishes(): string[] {
+    return Math.random() < ICE_CHANCE ? [randomIce()] : [];
+  }
+
+  /**
+   * What a guest comes into the boutique to buy. Never what they already have on — a
+   * guest in a red sun hat who asks for a red sun hat looks like a mistake.
+   */
+  private shoppingFor(guest: GuestData): string {
+    let key = randomGarment();
+    for (let tries = 0; tries < 8 && key === guest.wearing; tries++) key = randomGarment();
+    return key;
   }
 
   /** Where the guest wants to be taken next. */
@@ -1052,6 +1123,9 @@ class GameState {
       case 'pool':
         return this.pool.towels.filter(t => !t).length;
 
+      case 'boutique':
+        return this.guestsAt('boutique').filter(g => this.needsPlayer(g)).length;
+
       case 'garden':
         return this.garden.flowers.filter(f => !f).length
           + (SANDCASTLE_STAGES - this.garden.sandcastle)
@@ -1185,6 +1259,7 @@ class GameState {
       ...(typeof settings?.voices === 'boolean' ? { voices: settings.voices } : {}),
       ...(typeof settings?.sound === 'boolean' ? { sound: settings.sound } : {}),
       ...(typeof settings?.music === 'boolean' ? { music: settings.music } : {}),
+      ...(typeof settings?.patient === 'boolean' ? { patient: settings.patient } : {}),
     };
     this.skills = (data.skills as Record<string, SkillProgress>) ?? {};
     // A save may predate the fourth-room upgrade, or carry rooms without a theme.

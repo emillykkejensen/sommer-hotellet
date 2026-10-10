@@ -14,6 +14,7 @@ const AREA_LABEL: Record<ShopItem['area'], string> = {
   kitchen: 'Køkkenet',
   pool: 'Poolen',
   garden: 'Haven',
+  boutique: 'Tøjbutikken',
 };
 
 /**

@@ -93,7 +93,7 @@ const numberFactories: TaskFactory[] = [
     },
   },
   {
-    skill: 'talgenkendelse', level: 2, areas: ['lobby', 'rooms'],
+    skill: 'talgenkendelse', level: 2, areas: ['lobby', 'rooms', 'boutique'],
     make: () => {
       const n = between(4, 10);
       return task('talgenkendelse', 2,
@@ -178,7 +178,7 @@ const patternFactories: TaskFactory[] = [
     },
   },
   {
-    skill: 'mønstre', level: 2, areas: ['garden', 'rooms'],
+    skill: 'mønstre', level: 2, areas: ['garden', 'rooms', 'boutique'],
     make: () => {
       const [a, b, c] = Phaser.Utils.Array.Shuffle([0, 1, 2, 3]).slice(0, 3);
       const seq = [a, a, b, a, a];
@@ -228,7 +228,7 @@ const RHYMES: [string, string, string[]][] = [
 
 const danskFactories: TaskFactory[] = [
   {
-    skill: 'bogstavlyd', level: 1, areas: ['lobby', 'rooms'],
+    skill: 'bogstavlyd', level: 1, areas: ['lobby', 'rooms', 'boutique'],
     make: () => {
       const letter = pick(LETTERS);
       const word = pick(LETTER_WORDS[letter]);
@@ -239,7 +239,7 @@ const danskFactories: TaskFactory[] = [
     },
   },
   {
-    skill: 'bogstavlyd', level: 2, areas: ['kitchen', 'pool', 'garden'],
+    skill: 'bogstavlyd', level: 2, areas: ['kitchen', 'pool', 'garden', 'boutique'],
     make: () => {
       const letter = pick(LETTERS);
       const word = pick(LETTER_WORDS[letter]);
@@ -264,7 +264,7 @@ const danskFactories: TaskFactory[] = [
     },
   },
   {
-    skill: 'rim', level: 1, areas: ['rooms', 'lobby'],
+    skill: 'rim', level: 1, areas: ['rooms', 'lobby', 'boutique'],
     make: () => {
       const [word, rhyme, others] = pick(RHYMES);
       return task('rim', 1,
@@ -282,7 +282,7 @@ const danskFactories: TaskFactory[] = [
     },
   },
   {
-    skill: 'ordlæsning', level: 1, areas: ['kitchen', 'pool', 'rooms'],
+    skill: 'ordlæsning', level: 1, areas: ['kitchen', 'pool', 'rooms', 'boutique'],
     make: () => {
       // Word to *picture*. Matching a written word against the same written word only
       // tests visual discrimination; reading it and finding the thing is the real skill.
@@ -554,7 +554,7 @@ const moreDanskFactories: TaskFactory[] = [
     },
   },
   {
-    skill: 'stavelser', level: 2, areas: ['lobby', 'rooms', 'garden'],
+    skill: 'stavelser', level: 2, areas: ['lobby', 'rooms', 'garden', 'boutique'],
     make: () => {
       const [name, count] = pick(SYLLABLES);
       return task('stavelser', 2,
@@ -643,6 +643,42 @@ const moreDanskFactories: TaskFactory[] = [
   },
 ];
 
+/**
+ * The boutique's own: shopping is where money and colours come up naturally. The rest of
+ * what it asks is borrowed from factories whose wording fits anywhere in the hotel.
+ */
+const boutiqueFactories: TaskFactory[] = [
+  {
+    skill: 'mønstre', level: 1, areas: ['boutique'],
+    make: () => {
+      const [a, b, c] = Phaser.Utils.Array.Shuffle([0, 1, 2, 3]).slice(0, 3);
+      return task('mønstre', 1,
+        'Kasketterne hænger i et mønster. Hvilken farve mangler?',
+        { template: 'pattern', sequence: [a, b, a, b, a], options: Phaser.Utils.Array.Shuffle([a, b, c]), answer: b });
+    },
+  },
+  {
+    skill: 'plus', level: 2, areas: ['boutique'],
+    make: () => {
+      const a = between(2, 7);
+      const b = between(1, 10 - a);
+      return task('plus', 2,
+        `En kasket koster ${a} kroner, og solbriller koster ${b}. Hvad koster de tilsammen?`,
+        { template: 'number-pad', answer: a + b }, 3);
+    },
+  },
+  {
+    skill: 'minus', level: 3, areas: ['boutique'],
+    make: () => {
+      const price = between(3, 9) * 5;
+      const paid = price + between(1, 4) * 5;
+      return task('minus', 3,
+        `Solhatten koster ${price} kroner. Gæsten betaler med ${paid}. Hvor meget skal de have tilbage?`,
+        { template: 'number-pad', answer: paid - price }, 4);
+    },
+  },
+];
+
 export const FACTORIES: TaskFactory[] = [
   ...countingFactories,
   ...numberFactories,
@@ -653,4 +689,5 @@ export const FACTORIES: TaskFactory[] = [
   ...dialFactories,
   ...danskFactories,
   ...moreDanskFactories,
+  ...boutiqueFactories,
 ];

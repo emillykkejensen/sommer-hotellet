@@ -102,7 +102,7 @@ export class SettingsScene extends BaseScene {
 
   private buildToggles(cx: number, y: number): void {
     const items: {
-      key: 'matematik' | 'dansk' | 'voices' | 'sound' | 'music';
+      key: 'matematik' | 'dansk' | 'voices' | 'sound' | 'music' | 'patient';
       label: string;
       available: boolean;
     }[] = [
@@ -111,9 +111,12 @@ export class SettingsScene extends BaseScene {
       { key: 'sound', label: 'Lyd', available: audio.available() },
       { key: 'voices', label: 'Gæstestemmer', available: audio.available() },
       { key: 'music', label: 'Musik', available: audio.available() },
+      // A minute is right for a seven-year-old and short for a four-year-old who is still
+      // working out where the towels are. Doubles every guest's patience.
+      { key: 'patient', label: 'Tålmodige gæster', available: true },
     ];
 
-    // 2x2 — four of these in one row would not fit the panel width
+    // two to a row — four of these in one row would not fit the panel width
     items.forEach((item, i) => {
       const on = gameState.settings[item.key] && item.available;
       const w = 250;

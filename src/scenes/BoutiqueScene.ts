@@ -1,9 +1,11 @@
 import Phaser from 'phaser';
-import { COLORS } from '../config';
-import { GuestData, MAX_GARMENTS, gameState } from '../state/GameState';
+import { COLORS, DEPTH, SIZE, text } from '../config';
+import { Destination, GuestData, MAX_GARMENTS, gameState } from '../state/GameState';
 import { COLOURS, GARMENTS, garmentKey, garmentOf, isGarment, parseGarment } from '../state/Extras';
 import { paintGarment, paintWearable } from '../objects/Icons';
-import { HEAD, drawHead } from '../helpers/Draw';
+import { CardAction } from '../objects/Guests';
+import { HEAD, drawHead, drawPerson } from '../helpers/Draw';
+import { dur, reduceMotion } from '../helpers/Motion';
 import { MakerScene, MakerStep } from './MakerScene';
 
 /** A pale grey for a thing whose colour has not been picked yet. */
@@ -12,9 +14,11 @@ const UNDYED = 0xE6E1D8;
 /**
  * The boutique, bought in the star shop.
  *
- * A guest at the pool sometimes asks for something to wear — a sun hat, a cap, sunglasses,
- * a flower crown — in a colour. It is made here, a thing and then a colour, and handed over
- * from their card. They keep it on for the rest of their stay, so the hotel fills up with
+ * It is a stop on a guest's day like the pool or the restaurant: once it is open, many
+ * guests want to go shopping, and the player leads them here. Each comes in wanting one
+ * thing — a sun hat, a cap, sunglasses, a flower crown — in a colour, shown over their
+ * head. It is made here, a thing and then a colour, put on the shelf and handed over from
+ * their card. They keep it on for the rest of their stay, so the hotel fills up with
  * guests wearing the child's work.
  */
 export class BoutiqueScene extends MakerScene {
@@ -49,6 +53,57 @@ export class BoutiqueScene extends MakerScene {
 
   constructor() {
     super({ key: 'BoutiqueScene' });
+  }
+
+  protected serves(): Destination {
+    return 'boutique';
+  }
+
+  /**
+   * The customers, standing on the shop floor to the left of the till.
+   *
+   * They take the place of the ice stand's wish list: each one's thought bubble already
+   * shows exactly the thing they want, in its colour, which is the picture to copy.
+   */
+  protected buildWishes(): void {
+    const { height } = this.scale;
+    const here = gameState.guestsAt('boutique');
+    if (here.length === 0) {
+      super.buildWishes(96, height * 0.48);
+      return;
+    }
+
+    const left = 62;
+    const right = 300;
+    const step = here.length > 1 ? Math.min(96, (right - left) / (here.length - 1)) : 0;
+    here.forEach((guest, i) => {
+      const x = here.length === 1 ? 110 : left + i * step;
+      const y = height * 0.8;
+      const c = this.add.container(x, y);
+      c.add(drawPerson(this, 0, 0, guest.color, 1.05, guest.id, guest.wearing));
+      const name = this.add.text(0, 50, guest.name, text(SIZE.tiny, '#5A4E42', 'bold')).setOrigin(0.5);
+      if (name.width > 92) name.setScale(92 / name.width);
+      c.add(name);
+      // A bigger bubble than elsewhere: it is the pattern to copy, and a pair of sunglasses
+      // at the usual size is a smudge.
+      this.addGuest(guest, c, { w: 70, h: 96, thoughtY: -44, barY: 66, thoughtScale: 1.3 });
+    });
+  }
+
+  /** The thing leaves the shelf and lands on the guest. */
+  protected animateDelivery(_guest: GuestData, action: CardAction, spot: { x: number; y: number }): void {
+    if (action.kind !== 'extra' || !action.arg || !isGarment(action.arg) || reduceMotion()) return;
+    const from = this.counterSpot();
+    const item = this.add.graphics().setPosition(from.x, from.y + 10).setDepth(DEPTH.effects);
+    paintGarment(item, 1.6, action.arg);
+    this.tweens.add({
+      targets: item,
+      x: spot.x,
+      y: spot.y - 30,
+      duration: dur(480),
+      ease: 'Cubic.easeInOut',
+      onComplete: () => item.destroy(),
+    });
   }
 
   private paintChoice(g: Phaser.GameObjects.Graphics, kind: string, colour?: string): void {

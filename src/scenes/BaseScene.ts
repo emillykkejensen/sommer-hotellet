@@ -326,6 +326,7 @@ export abstract class BaseScene extends Phaser.Scene {
       case 'pool': return 'pool';
       case 'room': return 'rooms';
       case 'restaurant': return 'kitchen';
+      case 'boutique': return 'boutique';
       default: return 'lobby';
     }
   }
@@ -440,12 +441,21 @@ export abstract class BaseScene extends Phaser.Scene {
 
       case 'extra': {
         if (!action.arg) return;
+        const shopping = guest.at === 'boutique';
         const result = gameState.giveExtra(guest.id, action.arg);
         if (!result) return;
         audio.serve();
         this.animateDelivery(guest, action, spot);
         if (result.late) {
           lateToast();
+        } else if (shopping && result.settled) {
+          // What they came into the shop for, like a whole meal at a table: it pays like one,
+          // and in Lær mode it asks.
+          showStarBurst(this, spot.x, spot.y - 20, 6);
+          showHearts(this, spot.x, spot.y - 40);
+          showToast(this, spot.x, toastY, 'Tak, den er flot!', '#4A7F33');
+          rewardFor(this, 'boutique', { base: 2, from: spot, after: done });
+          return;
         } else {
           showStarBurst(this, spot.x, spot.y - 20, 4);
           showHearts(this, spot.x, spot.y - 40);

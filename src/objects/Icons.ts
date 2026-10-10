@@ -371,6 +371,7 @@ export function destinationIcon(dest: Destination): IconPainter {
     case 'pool': return paintWaves;
     case 'restaurant': return paintPlate;
     case 'room': return paintBed;
+    case 'boutique': return paintBoutique;
     case 'checkout': return paintBell;
   }
 }

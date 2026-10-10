@@ -7,9 +7,10 @@ A hotel game for children (roughly ages 4–8), in Danish. Run the reception, ma
 rooms, cook in the kitchen, lay towels and make ice creams by the pool, dress your guests up
 in the boutique, and play in the garden.
 
-Guests are the game. Each one checks in with a plan of their own — pool, restaurant, room,
-in a random order — and you lead them from one to the next, doing whatever lets them get on
-with their day at each stop. What a guest wants floats over their head as a picture; tap
+Guests are the game. Each one checks in with a plan of their own — a night in their room,
+and some of the pool, the restaurant and (once you have built it) the boutique, in a random
+order — and you lead them from one to the next, doing whatever lets them get on with their
+day at each stop. What a guest wants floats over their head as a picture; tap
 them and a card tells you, with the buttons that help. Keep somebody waiting too long and
 they get grumpy and the star goes unearned: nothing is ever taken away, but not everything
 is given either.
@@ -120,7 +121,7 @@ src/
     GardenScene.ts       flower bed, sandbox, swing, apple tree — play, no stars
     MakerScene.ts        the shared layout for building something for a guest
     IceCreamScene.ts     the ice cream stand: cone or cup, flavour, topping
-    BoutiqueScene.ts     the boutique: a hat, a cap, sunglasses or a crown, in a colour
+    BoutiqueScene.ts     the boutique: guests come shopping for a hat, a cap, sunglasses or a crown
     ShopScene.ts         spend stars; also places bought pieces into the scenes
     SettingsScene.ts     one player's mode, subjects, sound, voices, progress, reset, delete
     TaskOverlayScene.ts  the task card, and its four interaction templates
@@ -289,7 +290,7 @@ lost.
 A guest is a small state machine, and `GameState` owns all of it.
 
 ```ts
-plan: ['restaurant', 'room', 'pool']   // shuffled per guest
+plan: ['restaurant', 'room', 'boutique', 'restaurant']   // drawn per guest
 step: 0                                // how far along
 at:   'restaurant'                     // where they are — or 'following' the player
 heading: null                          // while following: where they want to be taken
@@ -299,9 +300,18 @@ done: false                            // finished here, waiting to be led on
 gaveUp: false                          // patience spent, star forfeit
 order: ['Suppe', 'Is']                 // what they asked for at the table
 served: ['Suppe']                      // what has been carried out
-extras: ['is:vaffel:jordbaer:drys']    // an ice cream or something to wear, asked for here
-wearing: 'toej:solhat:blaa'            // what the boutique gave them, kept on all stay
+extras: ['is:vaffel:jordbaer:drys']    // an ice cream, or what they came to the boutique to buy
+wearing: 'toej:solhat:blaa'            // what they bought at the boutique, kept on all stay
 ```
+
+**No two days in a row are alike.** Every guest used to want all of pool, restaurant and
+room, so the only thing telling one stay from the next was the order — and to a child that
+is the same three trips every time. A plan is now drawn rather than shuffled
+(`GameState.makePlan()`): everybody sleeps in the room they booked; on top of that a guest
+wants the pool 70% of the time, the restaurant 75%, and — once it is bought — the boutique
+60%, with at least one of them. One in five who eat here comes back for a second meal later
+in the day. That is two to five stops, and a new guest's plan is never the same as that of
+the guest who arrived just before them.
 
 **Guests never move by themselves.** They used to walk off to their next stop the moment
 they had finished, which meant a child who could not read the bubble saying "så skal jeg i
@@ -330,6 +340,7 @@ solstol" button — and closes on a tap on empty floor.
 | `pool` | a lounger, maybe an ice cream, maybe a hat | towels; the ice cream stand; the boutique | Giv solstol, Giv isen, Giv solhatten |
 | `restaurant` | everything on their order | cooking in the kitchen | Server suppe … |
 | `room` | their bed | all five chores | Put i seng |
+| `boutique` | one thing to wear, in a colour | making it in the boutique | Giv solhatten … |
 | any, when done | to be shown the way | — | Følg med mig |
 | lobby | to pay and go home | — | Tjek ud |
 
@@ -341,8 +352,12 @@ Waiting has four phases, and they are the whole difficulty curve:
 - **impatient** — past it. The bubble turns pink and shakes, the patience bar empties, and the
   job still has to be done — it just no longer pays. This is the consequence, and it is
   deliberately not a punishment: nothing is taken away, a star is simply not earned.
-- **happy** — 12 s of swimming, eating or sleeping.
+- **happy** — 12 s of swimming, eating, sleeping or admiring themselves in their new hat.
 - **ready** — done, and waiting to be led on. There is no clock on this one.
+
+**Tålmodige gæster** on the grown-up screen doubles all of that, per child: a minute is about
+right for a seven-year-old and short for a four-year-old still working out where the towels
+are.
 
 A guest nobody helps **gives up on that stop** after a further 30 s — and then waits, grumpy,
 to be led to the next one. Two rules meet there: a consequence that can deadlock the game is a
@@ -376,13 +391,22 @@ take shape, put it on the counter, hand it over from the guest's card.
   sprinkles or a cherry: sixteen ices, which is enough that matching the guest's picture is
   the job rather than luck. Half of all guests at the pool want one.
 - **The boutique** (`BoutiqueScene`), bought in the star shop for 16 stars, which adds it to
-  the map. A sun hat, a cap, sunglasses or a flower crown, in one of five colours. Once it is
-  open, a guest at the pool sometimes asks for something — and keeps it on for the rest of
-  their stay, so the hotel fills up with guests wearing the child's work.
+  the map. A sun hat, a cap, sunglasses or a flower crown, in one of five colours. It is a
+  **stop**, like the pool: once it is open, most guests want to go shopping, and the player
+  leads them there. Each walks in wanting one thing — never what they already have on —
+  shows it over their head, and keeps it on for the rest of their stay, so the hotel fills up
+  with guests wearing the child's work. It used to be only a side-wish at the pool, so a child
+  who had saved up for it found nobody ever went inside.
 
 Both share `MakerScene`: what guests are waiting for on the left, as pictures to copy; a row
 per choice in the middle, each option drawn as the thing would turn out with what has been
-picked so far; the thing itself big on the right, and the counter under it. Items are string
+picked so far; the thing itself big on the right, and the counter under it. In the boutique
+the customers themselves stand on the left, each with a big bubble showing exactly what they
+want; the ice stand, which nobody walks into, keeps a list.
+
+Thought bubbles draw the real thing — a chocolate ice in a cup with a cherry, a red pair of
+sunglasses — rather than a generic ice or hat, so a child who cannot read the card can still
+make the right one. Items are string
 keys (`is:vaffel:jordbaer:drys`, `toej:solhat:roed`) defined in `state/Extras.ts`, which
 also holds the Danish — including the adjective agreement, so it is "en rød solhat" but
 "røde solbriller".
@@ -403,7 +427,7 @@ Confetti and the big praise pop are reserved for finishing a whole job — a com
 every lounger, the finished sandcastle — so they stay a treat rather than wallpaper.
 
 **Stars come only from guests.** A key handed over, a dish served, a swim or a night's sleep
-they have had, an ice cream or a hat, a bill paid. Laying the towel, cooking the soup and
+they have had, an ice cream, something bought in the boutique, a bill paid. Laying the towel, cooking the soup and
 making the bed pay nothing until somebody uses them, and the garden pays nothing at all —
 nobody stays there; it is the bit of the hotel that is simply for playing in. Stars for
 housework had the child earning from chores rather than from the people the chores are for,
@@ -435,9 +459,10 @@ soup asked three — the child was doing arithmetic to fetch a carrot.
 | --- | --- |
 | a key handed over | yes |
 | a whole order served | yes |
+| something bought in the boutique | yes |
 | led on after a swim | yes |
 | led on after a night's sleep | yes |
-| one dish of several, an ice cream, a hat, a bill paid | no — a plain star |
+| one dish of several, an ice cream, a bill paid | no — a plain star |
 | a towel, a dish cooked, a chore, anything in the garden | nothing |
 
 That is roughly one question per guest per stop.
@@ -456,7 +481,7 @@ level, so a child never runs out and never sees the same numbers twice running:
 }
 ```
 
-45 factories across 19 skills. Adding content means adding a factory, not a scene.
+48 factories across 19 skills. Adding content means adding a factory, not a scene.
 
 | Skill | Levels | Template(s) |
 | --- | --- | --- |
@@ -728,10 +753,8 @@ Not bugs, but worth knowing before picking up the next piece of work.
 - **Nothing is read aloud.** Guests babble, but a task prompt is text, so a pre-reader needs
   a grown-up nearby for the wordier ones. Recorded narration would fix it and would mean a
   few hundred audio files.
-- **Patience is one number for everybody.** A four-year-old and a seven-year-old get the same
-  minute. It wants to be a setting on the grown-up screen.
-- **Guests only ever want three things.** The plan is a shuffle of pool, restaurant and room,
-  so every stay visits all three. Partial plans and repeat visits would vary it.
+- **Patience has two settings.** Normal, or doubled with *Tålmodige gæster*. A slider would be
+  finer, but two is what a parent will actually look at.
 - **The suite is slow in software rendering.** Around twenty minutes with no GPU; roughly
   twelve on CI. `test.slow()` marks the one test that buys the whole catalogue.
 - **The exit button cannot close a browser tab.** No page can, so on the web it says goodbye

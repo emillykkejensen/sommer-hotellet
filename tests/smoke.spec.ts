@@ -149,8 +149,7 @@ test('lobby check-in assigns a room and the guest waits to be shown the way', as
 
   const arrival = (await game.guests())[0];
   expect(arrival.at, 'a new guest waits at the desk').toBe('lobby');
-  expect(arrival.plan, 'and turns up with a plan for the day')
-    .toEqual(expect.arrayContaining(['pool', 'restaurant', 'room']));
+  expect(arrival.plan, 'and turns up with a plan for the day').toContain('room');
 
   await game.helpGuest(arrival.id, 'Giv nøgle til værelse 1');
   await game.expectSave(s => s.guests[0]?.checkedIn, 'guest checks in').toBe(true);

@@ -4,7 +4,8 @@ import { plate, shadow } from '../helpers/Draw';
 import { LINE } from '../config';
 import { paintGarment } from '../objects/Icons';
 
-export type Area = 'lobby' | 'rooms' | 'kitchen' | 'pool' | 'garden';
+/** A part of the hotel: where a decoration goes, and which tasks fit a job done there. */
+export type Area = 'lobby' | 'rooms' | 'kitchen' | 'pool' | 'garden' | 'boutique';
 
 export interface ShopItem {
   id: string;
@@ -594,7 +595,7 @@ export const SHOP_UPGRADES: ShopUpgrade[] = [
   {
     id: 'boutique',
     name: 'Tøjbutik',
-    blurb: 'Tøj til gæsterne',
+    blurb: 'Gæsterne kan købe tøj',
     cost: 16,
     draw: boutiquePreview,
   },

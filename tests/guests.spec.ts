@@ -4,8 +4,8 @@ import { AT, Game } from './game';
 /**
  * The guest's day.
  *
- * Each guest arrives with a plan — pool, restaurant, room, in a random order — and waits at
- * each stop for the player. What they want floats over their head as a picture; tapping
+ * Each guest arrives with a plan of their own — a night in their room, and some of the pool,
+ * the restaurant and the boutique, in a random order — and waits at each stop for the player. What they want floats over their head as a picture; tapping
  * them opens a card with what they say and the buttons that help them. They never move by
  * themselves: when they are done somewhere, the player leads them to the next place.
  *
@@ -28,8 +28,9 @@ test('a guest arrives with a random plan, gets a key, and waits to be shown the 
   await game.expectSave(s => s.guests.length).toBe(1);
 
   const [arrival] = await game.guests();
-  expect(arrival.plan.slice().sort(), 'the plan covers all three stops')
-    .toEqual(['pool', 'restaurant', 'room']);
+  expect(arrival.plan, 'everybody sleeps in the room they booked').toContain('room');
+  expect(arrival.plan.length, 'and does at least one other thing').toBeGreaterThanOrEqual(2);
+  expect(arrival.plan, 'but not shopping in a boutique the hotel does not have').not.toContain('boutique');
 
   // A picture first; the words only once the guest is tapped.
   await game.expectScreen('LobbyScene', 'nothing is said until the guest is tapped')
@@ -54,28 +55,56 @@ test('a guest arrives with a random plan, gets a key, and waits to be shown the 
 });
 
 test('plans are not all the same', async ({ page }) => {
-  // Three guests all doing pool-restaurant-room in that order would make the hotel a
-  // conveyor belt. Generated at the state level, so this checks the generator rather than
-  // one unlucky run of the UI.
+  // Every guest doing pool, restaurant and room — in whatever order — made the hotel a
+  // conveyor belt. A day is now a choice of places as well as an order. Generated at the
+  // state level, so this checks the generator rather than one unlucky run of the UI.
   const game = await Game.open(page);
   await game.start();
 
-  const plans = await page.evaluate(() => {
+  const days = await page.evaluate(() => {
     const state = window.__state;
-    const seen = new Set<string>();
-    for (let i = 0; i < 60; i++) {
-      state.guests = [];
-      const guest = state.createGuest();
-      seen.add(guest!.plan.join('>'));
+    const plans: string[][] = [];
+    let repeats = 0;
+    for (let i = 0; i < 200; i++) {
+      // Keep only the guest before, so the generator can see who it must not copy.
+      state.guests = state.guests.slice(-1);
+      const before = state.guests[0]?.plan.join('>');
+      const guest = state.createGuest()!;
+      if (guest.plan.join('>') === before) repeats++;
+      plans.push(guest.plan);
     }
     state.guests = [];
-    return [...seen];
+    return { plans, repeats };
   });
 
-  expect(plans.length, 'guests should not all want the same day').toBeGreaterThan(2);
-  for (const plan of plans) {
-    expect(plan.split('>').sort()).toEqual(['pool', 'restaurant', 'room']);
-  }
+  const distinct = new Set(days.plans.map(p => p.join('>')));
+  expect(distinct.size, 'guests should not all want the same day').toBeGreaterThan(10);
+  expect(days.repeats, 'never the same day as the guest just before').toBe(0);
+  expect(days.plans.every(p => p.includes('room')), 'everybody sleeps here').toBe(true);
+  expect(days.plans.every(p => p.length >= 2), 'nobody comes just for a bed').toBe(true);
+  expect(days.plans.some(p => !p.includes('pool')), 'some skip the pool').toBe(true);
+  expect(days.plans.some(p => !p.includes('restaurant')), 'some never eat here').toBe(true);
+  expect(days.plans.some(p => p.filter(x => x === 'restaurant').length === 2), 'some eat twice').toBe(true);
+  expect(days.plans.some(p => p.includes('boutique')), 'no boutique, no shopping').toBe(false);
+  game.expectNoErrors();
+});
+
+test('once the boutique is open, guests want to go shopping', async ({ page }) => {
+  const game = await Game.openWithSave(page, { owned: ['boutique'] });
+  await game.start();
+
+  const shoppers = await page.evaluate(() => {
+    const state = window.__state;
+    let count = 0;
+    for (let i = 0; i < 100; i++) {
+      state.guests = [];
+      if (state.createGuest()!.plan.includes('boutique')) count++;
+    }
+    state.guests = [];
+    return count;
+  });
+  expect(shoppers, 'a good share of guests go to the boutique').toBeGreaterThan(30);
+  expect(shoppers, 'but not every one of them').toBeLessThan(90);
   game.expectNoErrors();
 });
 
@@ -189,6 +218,25 @@ test('a guest who waited too long still gets looked after, but pays no star', as
   await game.tapCardAction('Følg med mig');
   await game.expectSave(s => s.guests[0].at).toBe('following');
   expect(await game.stars(), 'a star not earned').toBe(0);
+  game.expectNoErrors();
+});
+
+test('"Tålmodige gæster" gives a younger child twice as long', async ({ page }) => {
+  const game = await Game.openWithSave(page, Game.guestWaitingAt('pool', { plan: ['pool', 'room'] }));
+  await game.start();
+
+  await game.tap(AT.settings.x, AT.settings.y);
+  await game.waitForScene('SettingsScene');
+  await game.tap(AT.togglePatient.x, AT.togglePatient.y);
+  await game.expectSave(s => s.settings.patient, 'the grown-up switches it on').toBe(true);
+  await game.tap(AT.back.x, AT.back.y);
+  await game.waitForScene('HotelMapScene');
+  await game.enter('pool');
+
+  await game.ageGuest(0, IMPATIENT_MS);
+  expect((await game.guests())[0].gaveUp, 'a minute and a bit is no longer too long').toBe(false);
+  await game.ageGuest(0, 60_000);
+  await game.expectSave(s => s.guests[0].gaveUp, 'but two minutes and a bit is').toBe(true);
   game.expectNoErrors();
 });
 
@@ -382,27 +430,57 @@ test('an ice cream is made at the stand and handed over from the card', async ({
   game.expectNoErrors();
 });
 
-test('the boutique makes clothes, and a guest keeps wearing what they are given', async ({ page }) => {
-  const hat = 'toej:solhat:blaa';
+test('a guest led to the boutique asks for something to wear', async ({ page }) => {
   const game = await Game.openWithSave(page, {
-    ...Game.guestWaitingAt('pool', { lounger: 0, extras: [hat] }),
-    pool: { towels: [true, false, false, false] },
+    ...Game.guestWaitingAt('pool', { plan: ['pool', 'boutique', 'room'], step: 1, at: 'following', heading: 'boutique' }),
     owned: ['boutique'],
   });
   await game.start();
+
+  const [guest] = await game.guests();
+  expect(guest.at).toBe('following');
+  await game.enter('boutique');
+  await game.expectSave(s => s.guests[0].at, 'walking in hands them over').toBe('boutique');
+  const [shopper] = await game.guests();
+  expect(shopper.extras, 'they come in wanting one thing').toHaveLength(1);
+  expect(shopper.extras[0]).toMatch(/^toej:/);
+  await game.tapGuest(0);
+  await game.expectCard('and say what they want to buy').toContain('Jeg vil gerne købe');
+  await game.expectCard('and where it comes from').toContain('Lav det her i butikken');
+  game.expectNoErrors();
+});
+
+test('the boutique makes clothes, and a guest keeps wearing what they buy', async ({ page }) => {
+  const hat = 'toej:solhat:blaa';
+  const game = await Game.openWithSave(page, {
+    ...Game.guestWaitingAt('boutique', { plan: ['boutique', 'room'], extras: [hat] }),
+    owned: ['boutique'],
+  });
+  await game.start();
+
+  // The map sends the player to the guest who needs them.
+  const badges = await game.mapBadges();
+  expect(badges.some(b => b.label === '1' && Math.abs(b.x - (AT.map.boutique.x + 78)) < 4),
+    'the boutique sign says somebody is waiting there').toBe(true);
 
   await game.enter('boutique');
   for (const choice of ['Solhat', 'Blå']) await game.tapLabelled('BoutiqueScene', choice);
   await game.tapLabelled('BoutiqueScene', 'Læg på hylden');
   await game.expectSave(s => s.boutique.ready).toEqual([hat]);
-  await game.leave();
 
-  await game.enter('pool');
   await game.tapGuest(0);
   await game.expectCard().toContain('en blå solhat');
   await game.tapCardAction('Giv solhatten');
   await game.expectSave(s => s.guests[0].wearing, 'they put it on').toBe(hat);
-  expect(await game.stars()).toBeGreaterThan(0);
+  await game.expectSave(s => s.guests[0].settledAt, 'that was what they came for').not.toBe(null);
+  expect((await game.save()).boutique.ready).toEqual([]);
+  expect(await game.stars(), 'it pays like a whole meal').toBe(2);
+
+  // Admired in the mirror, then on to bed — still wearing it.
+  await game.finishEnjoying(0);
+  await game.helpGuest(0, 'Følg med mig');
+  await game.expectSave(s => s.guests[0].heading).toBe('room');
+  expect((await game.guests())[0].wearing).toBe(hat);
   game.expectNoErrors();
 });
 
